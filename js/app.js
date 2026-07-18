@@ -20,6 +20,7 @@ const historyContainer = document.getElementById("history");
 const loginButton = document.getElementById("loginButton");
 const logoutButton = document.getElementById("logoutButton");
 const userStatus = document.getElementById("userStatus");
+const appContent = document.getElementById("appContent");
 
 function save() {
   localStorage.setItem("tasks", JSON.stringify(tasks));
@@ -46,19 +47,22 @@ async function logoutUser() {
 }
 
 onAuthStateChanged(auth, user => {
-  currentUser = user;
-
-  if (user) {
-    userStatus.textContent = `Signed in as ${user.email}`;
-    loginButton.hidden = true;
-    logoutButton.hidden = false;
-    console.log("Firebase user UID:", user.uid);
-  } else {
-    userStatus.textContent = "Not signed in";
-    loginButton.hidden = false;
-    logoutButton.hidden = true;
-  }
-});
+    currentUser = user;
+  
+    if (user) {
+      userStatus.textContent = `Signed in as ${user.email}`;
+      loginButton.hidden = true;
+      logoutButton.hidden = false;
+      appContent.hidden = false;
+      console.log("Firebase user UID:", user.uid);
+      render();
+    } else {
+      userStatus.textContent = "Not signed in";
+      loginButton.hidden = false;
+      logoutButton.hidden = true;
+      appContent.hidden = true;
+    }
+  });
 
 function addTask() {
   const name = nameInput.value.trim();
@@ -461,8 +465,8 @@ goalInput.addEventListener("keydown", event => {
 });
 
 setInterval(() => {
-  renderDashboard();
-  renderTasks();
-}, 1000);
+    if (!currentUser) return;
+    renderDashboard();
+    renderTasks();
+  }, 1000);
 
-render();
