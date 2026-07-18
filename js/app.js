@@ -1,4 +1,5 @@
-import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from "./firebase.js";
+import { auth, db, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from "./firebase.js";
+import { doc, setDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
 let tasks = JSON.parse(localStorage.getItem("tasks") || "[]");
 let sessions = JSON.parse(localStorage.getItem("sessions") || "[]");
@@ -46,23 +47,39 @@ async function logoutUser() {
   }
 }
 
+async function testFirestoreConnection() {
+  if (!currentUser) return;
+
+  try {
+    await setDoc(doc(db, "users", currentUser.uid, "app", "connectionTest"), {
+      message: "Firestore connection successful",
+      timestamp: Date.now()
+    });
+
+    console.log("Firestore test write succeeded.");
+  } catch (error) {
+    console.error("Firestore test write failed:", error);
+  }
+}
+
 onAuthStateChanged(auth, user => {
-    currentUser = user;
-  
-    if (user) {
-      userStatus.textContent = `Signed in as ${user.email}`;
-      loginButton.hidden = true;
-      logoutButton.hidden = false;
-      appContent.hidden = false;
-      console.log("Firebase user UID:", user.uid);
-      render();
-    } else {
-      userStatus.textContent = "Not signed in";
-      loginButton.hidden = false;
-      logoutButton.hidden = true;
-      appContent.hidden = true;
-    }
-  });
+  currentUser = user;
+
+  if (user) {
+    userStatus.textContent = `Signed in as ${user.email}`;
+    loginButton.hidden = true;
+    logoutButton.hidden = false;
+    appContent.hidden = false;
+    console.log("Firebase user UID:", user.uid);
+    testFirestoreConnection();
+    render();
+  } else {
+    userStatus.textContent = "Not signed in";
+    loginButton.hidden = false;
+    logoutButton.hidden = true;
+    appContent.hidden = true;
+  }
+});
 
 function addTask() {
   const name = nameInput.value.trim();
