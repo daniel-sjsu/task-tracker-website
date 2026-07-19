@@ -1,7 +1,7 @@
 import { auth, db, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from "./firebase.js";
 import { doc, setDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 import { createProject, getProjects, createTask, getTasks, getSessions, createSession, getTimerState, saveTimerState, listenToTimerState} from "./database.js";
-import { deleteTask as deleteTaskFromFirestore, getTasks } from "./database.js";
+import { deleteTask as deleteTaskFromFirestore } from "./database.js";
 
 let projects = [];
 let tasks = [];
