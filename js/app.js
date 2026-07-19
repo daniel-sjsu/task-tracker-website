@@ -48,25 +48,7 @@ async function logoutUser() {
   }
 }
 
-async function testProjectCreation() {
-  if (!currentUser) return;
 
-  try {
-    const projectId = await createProject(currentUser.uid, {
-      name: "Test Project",
-      description: "Temporary Firestore project test",
-      color: "#4f83cc",
-      targetHours: 10
-    });
-
-    console.log("Created project:", projectId);
-
-    const projects = await getProjects(currentUser.uid);
-    console.log("Projects:", projects);
-  } catch (error) {
-    console.error("Project test failed:", error);
-  }
-}
 
 
 onAuthStateChanged(auth, user => {
@@ -78,7 +60,6 @@ onAuthStateChanged(auth, user => {
     logoutButton.hidden = false;
     appContent.hidden = false;
     console.log("Firebase user UID:", user.uid);
-    testProjectCreation();
     render();
   } else {
     userStatus.textContent = "Not signed in";
