@@ -24,10 +24,22 @@ const loginButton = document.getElementById("loginButton");
 const logoutButton = document.getElementById("logoutButton");
 const userStatus = document.getElementById("userStatus");
 const appContent = document.getElementById("appContent");
+const taskProjectInput = document.getElementById("taskProjectInput");
 
 function save() {
   localStorage.setItem("sessions", JSON.stringify(sessions));
   localStorage.setItem("state", JSON.stringify(state));
+}
+
+function renderProjectOptions() {
+  const activeProjects = projects.filter(project => !project.archived);
+
+  taskProjectInput.innerHTML = activeProjects.length
+    ? `<option value="">Select a project</option>${activeProjects.map(project => `<option value="${project.id}">${escapeHTML(project.name)}</option>`).join("")}`
+    : `<option value="">Create a project first</option>`;
+
+  taskProjectInput.disabled = activeProjects.length === 0;
+  addTaskButton.disabled = activeProjects.length === 0;
 }
 
 async function loginWithGoogle() {
@@ -55,6 +67,7 @@ async function loadFirestoreData() {
     projects = await getProjects(currentUser.uid);
     tasks = await getTasks(currentUser.uid);
 
+    renderProjectOptions();
     console.log("Loaded projects:", projects);
     console.log("Loaded tasks:", tasks);
   } catch (error) {
@@ -91,34 +104,46 @@ onAuthStateChanged(auth, async user => {
   }
 });
 
-function addTask() {
+async function addTask() {
+  const projectId = taskProjectInput.value;
   const name = nameInput.value.trim();
-  const goal = Number.parseFloat(goalInput.value);
+  const targetHours = goalInput.value === "" ? null : Number.parseFloat(goalInput.value);
+
+  if (!projectId) {
+    alert("Select a project.");
+    return;
+  }
 
   if (!name) {
     alert("Enter a task name.");
     return;
   }
 
-  if (!Number.isFinite(goal) || goal <= 0) {
-    alert("Enter a target greater than zero.");
+  if (targetHours !== null && (!Number.isFinite(targetHours) || targetHours < 0)) {
+    alert("Enter a valid target time.");
     return;
   }
 
-  tasks.push({
-    id: Date.now(),
-    name,
-    goal,
-    total: 0,
-    completed: false,
-    completedAt: null
-  });
+  try {
+    addTaskButton.disabled = true;
 
-  nameInput.value = "";
-  goalInput.value = "";
+    await createTask(currentUser.uid, projectId, {
+      name,
+      description: "",
+      targetHours,
+      parentTaskId: null
+    });
 
-  save();
-  render();
+    tasks = await getTasks(currentUser.uid);
+    nameInput.value = "";
+    goalInput.value = "";
+    render();
+  } catch (error) {
+    console.error("Failed to create task:", error);
+    alert(error.message);
+  } finally {
+    addTaskButton.disabled = false;
+  }
 }
 
 function deleteTask(id) {
@@ -367,10 +392,14 @@ function renderWeekly() {
 }
 
 function createTaskElement(task) {
+  const project = projects.find(project => project.id === task.projectId);
+  const projectLabel = project ? `<div class="task-project"><span style="background:${project.color}"></span>${escapeHTML(project.name)}</div>` : "";
+
   const seconds = getCurrentSeconds(task);
-  const goalSeconds = task.goal * 3600;
+  const targetHours = task.targetHours ?? 0;
+  const goalSeconds = targetHours * 3600;
   const percentage = goalSeconds > 0 ? seconds / goalSeconds * 100 : 0;
-  const differenceHours = (seconds - goalSeconds) / 3600;
+  const differenceHours = goalSeconds > 0 ? (seconds - goalSeconds) / 3600 : null;
   const taskElement = document.createElement("div");
 
   taskElement.className = [
@@ -390,14 +419,25 @@ function createTaskElement(task) {
     ? `<button type="button" data-action="restore" data-task-id="${task.id}">Restore</button>`
     : `<button type="button" data-action="complete" data-task-id="${task.id}">Complete</button>`;
 
+  const targetDisplay = task.targetHours !== null && task.targetHours !== undefined
+    ? `<div>Target: ${task.targetHours.toFixed(2)} h</div>`
+    : `<div>Target: None</div>`;
+
+  const progressDisplay = goalSeconds > 0
+    ? `
+      <div>${differenceHours >= 0 ? `Overrun: +${differenceHours.toFixed(2)} h` : `Remaining: ${Math.abs(differenceHours).toFixed(2)} h`}</div>
+      <div>${percentage.toFixed(1)}%</div>
+      <div class="progress"><div class="bar" style="width:${Math.min(percentage, 100)}%"></div></div>
+    `
+    : "";
+
   taskElement.innerHTML = `
+    ${projectLabel}
     <h3>${escapeHTML(task.name)}</h3>
-    <div>Goal: ${task.goal.toFixed(2)} h</div>
+    ${targetDisplay}
     <div>Tracked: ${formatDuration(seconds)}</div>
-    <div>${differenceHours >= 0 ? `Overrun: +${differenceHours.toFixed(2)} h` : `Remaining: ${Math.abs(differenceHours).toFixed(2)} h`}</div>
-    <div>${percentage.toFixed(1)}%</div>
-    <div class="progress"><div class="bar" style="width:${Math.min(percentage, 100)}%"></div></div>
-    ${task.completedAt ? `<div class="small">Completed: ${new Date(task.completedAt).toLocaleDateString()}</div>` : ""}
+    ${progressDisplay}
+    ${task.completedAt ? `<div class="small">Completed: ${task.completedAt.toDate ? task.completedAt.toDate().toLocaleDateString() : new Date(task.completedAt).toLocaleDateString()}</div>` : ""}
     <br>
     ${timerButton}
     ${completionButton}

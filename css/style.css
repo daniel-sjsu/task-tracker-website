@@ -397,6 +397,22 @@
     display: grid;
     place-items: center;
   }
+  .task-project {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 6px;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+  
+  .task-project span {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+  }
   
   @media (max-width: 850px) {
     .header-content, .page-heading {
@@ -446,3 +462,4 @@
       flex-direction: column;
     }
   }
+  
