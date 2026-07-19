@@ -1,10 +1,10 @@
 import { auth, db, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from "./firebase.js";
 import { doc, setDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
-import { createProject, getProjects, createTask, getTasks } from "./database.js";
+import { createProject, getProjects, createTask, getTasks, getSessions, createSession} from "./database.js";
 
 let projects = [];
 let tasks = [];
-let sessions = JSON.parse(localStorage.getItem("sessions") || "[]");
+let sessions = [];
 let state = JSON.parse(localStorage.getItem("state") || '{"runningTaskId":null,"startTime":null}');
 
 let pieChart = null;
@@ -36,7 +36,6 @@ const cancelProjectButton = document.getElementById("cancelProjectButton");
 const projectsContainer = document.getElementById("projectsContainer");
 
 function save() {
-  localStorage.setItem("sessions", JSON.stringify(sessions));
   localStorage.setItem("state", JSON.stringify(state));
 }
 
@@ -157,6 +156,12 @@ async function loadFirestoreData() {
   try {
     projects = await getProjects(currentUser.uid);
     tasks = await getTasks(currentUser.uid);
+    sessions = await getSessions(currentUser.uid);
+    sessions = sessions.map(session => ({
+      ...session,
+      start: session.start?.toMillis ? session.start.toMillis() : session.start,
+      end: session.end?.toMillis ? session.end.toMillis() : session.end
+    }));
     renderProjects();
     renderProjectOptions();
     console.log("Loaded projects:", projects);
@@ -255,11 +260,14 @@ function deleteTask(id) {
   render();
 }
 
-function completeTask(id) {
-  const task = tasks.find(item => item.id === id);
+async function completeTask(id) {
+  const task = tasks.find(task => task.id === id);
   if (!task) return;
 
-  if (state.runningTaskId === id) stopTask();
+  if (state.runningTaskId === id) {
+    await stopTask();
+    if (state.runningTaskId === id) return;
+  }
 
   task.completed = true;
   task.completedAt = Date.now();
@@ -286,11 +294,15 @@ function toggleCompleted() {
   completedTasksHeading.textContent = isHidden ? "Completed Tasks ▲" : "Completed Tasks ▼";
 }
 
-function startTask(id) {
-  const task = tasks.find(item => item.id === id);
+async function startTask(id) {
+  const task = tasks.find(task => task.id === id);
   if (!task || task.completed) return;
 
-  if (state.runningTaskId !== null) stopTask();
+  if (state.runningTaskId !== null) {
+    await stopTask();
+
+    if (state.runningTaskId !== null) return;
+  }
 
   state.runningTaskId = id;
   state.startTime = Date.now();
@@ -299,31 +311,55 @@ function startTask(id) {
   render();
 }
 
-function stopTask() {
-  if (state.runningTaskId === null || state.startTime === null) return;
+async function stopTask() {
+  if (state.runningTaskId === null || state.startTime === null || !currentUser) return;
 
   const endTime = Date.now();
-  const duration = (endTime - state.startTime) / 1000;
-  const task = tasks.find(item => item.id === state.runningTaskId);
+  const task = tasks.find(task => task.id === state.runningTaskId);
 
-  if (task) {
-    task.total += duration;
-
-    sessions.push({
-      id: endTime,
-      taskId: task.id,
-      taskName: task.name,
-      start: state.startTime,
-      end: endTime,
-      duration
-    });
+  if (!task) {
+    state.runningTaskId = null;
+    state.startTime = null;
+    save();
+    render();
+    return;
   }
 
-  state.runningTaskId = null;
-  state.startTime = null;
+  const project = projects.find(project => project.id === task.projectId);
 
-  save();
-  render();
+  if (!project) {
+    console.error("Could not find the project assigned to this task.");
+    return;
+  }
+
+  try {
+    await createSession(currentUser.uid, {
+      projectId: project.id,
+      taskId: task.id,
+      projectName: project.name,
+      taskName: task.name,
+      start: new Date(state.startTime),
+      end: new Date(endTime),
+      note: "",
+      source: "timer"
+    });
+
+    state.runningTaskId = null;
+    state.startTime = null;
+    save();
+
+    sessions = await getSessions(currentUser.uid);
+    sessions = sessions.map(session => ({
+      ...session,
+      start: session.start?.toMillis ? session.start.toMillis() : session.start,
+      end: session.end?.toMillis ? session.end.toMillis() : session.end
+    }));
+
+    render();
+  } catch (error) {
+    console.error("Failed to stop timer:", error);
+    alert("The session could not be saved. The timer is still running.");
+  }
 }
 
 function formatDuration(seconds) {
@@ -572,22 +608,22 @@ function exportCSV() {
   URL.revokeObjectURL(objectURL);
 }
 
-function handleTaskAction(event) {
+async function handleTaskAction(event) {
   const button = event.target.closest("button[data-action]");
   if (!button) return;
 
   const action = button.dataset.action;
-  const taskId = Number(button.dataset.taskId);
+  const taskId = button.dataset.taskId;
 
   switch (action) {
     case "start":
-      startTask(taskId);
+      await startTask(taskId);
       break;
     case "stop":
-      stopTask();
+      await stopTask();
       break;
     case "complete":
-      completeTask(taskId);
+      await completeTask(taskId);
       break;
     case "restore":
       restoreTask(taskId);
