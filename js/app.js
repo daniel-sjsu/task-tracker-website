@@ -1,8 +1,9 @@
 import { auth, db, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from "./firebase.js";
 import { doc, setDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
-import { createProject, getProjects } from "./database.js";
+import { createProject, getProjects, createTask, getTasks } from "./database.js";
 
-let tasks = JSON.parse(localStorage.getItem("tasks") || "[]");
+let projects = [];
+let tasks = [];
 let sessions = JSON.parse(localStorage.getItem("sessions") || "[]");
 let state = JSON.parse(localStorage.getItem("state") || '{"runningTaskId":null,"startTime":null}');
 
@@ -25,7 +26,6 @@ const userStatus = document.getElementById("userStatus");
 const appContent = document.getElementById("appContent");
 
 function save() {
-  localStorage.setItem("tasks", JSON.stringify(tasks));
   localStorage.setItem("sessions", JSON.stringify(sessions));
   localStorage.setItem("state", JSON.stringify(state));
 }
@@ -48,10 +48,22 @@ async function logoutUser() {
   }
 }
 
+async function loadFirestoreData() {
+  if (!currentUser) return;
 
+  try {
+    projects = await getProjects(currentUser.uid);
+    tasks = await getTasks(currentUser.uid);
 
+    console.log("Loaded projects:", projects);
+    console.log("Loaded tasks:", tasks);
+  } catch (error) {
+    console.error("Failed to load Firestore data:", error);
+    throw error;
+  }
+}
 
-onAuthStateChanged(auth, user => {
+onAuthStateChanged(auth, async user => {
   currentUser = user;
 
   if (user) {
@@ -59,9 +71,19 @@ onAuthStateChanged(auth, user => {
     loginButton.hidden = true;
     logoutButton.hidden = false;
     appContent.hidden = false;
-    console.log("Firebase user UID:", user.uid);
-    render();
+
+    try {
+      await loadFirestoreData();
+      render();
+    } catch (error) {
+      userStatus.textContent = "Failed to load tracker data.";
+      appContent.hidden = true;
+    }
   } else {
+    projects = [];
+    tasks = [];
+    currentUser = null;
+
     userStatus.textContent = "Not signed in";
     loginButton.hidden = false;
     logoutButton.hidden = true;
