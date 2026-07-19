@@ -64,7 +64,7 @@ function renderProjectOptions() {
 
   taskProjectInput.innerHTML = activeProjects.length
     ? activeProjects.map(project => `<option value="${project.id}">${escapeHTML(project.name)}</option>`).join("")
-    : `<option value="">Create a project first</option>`;
+    : `<option value="">Create a project named General first</option>`;
 
   taskProjectInput.disabled = activeProjects.length === 0;
   addTaskButton.disabled = activeProjects.length === 0;
