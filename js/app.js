@@ -25,6 +25,15 @@ const logoutButton = document.getElementById("logoutButton");
 const userStatus = document.getElementById("userStatus");
 const appContent = document.getElementById("appContent");
 const taskProjectInput = document.getElementById("taskProjectInput");
+const newProjectButton = document.getElementById("newProjectButton");
+const projectFormCard = document.getElementById("projectFormCard");
+const projectNameInput = document.getElementById("projectNameInput");
+const projectDescriptionInput = document.getElementById("projectDescriptionInput");
+const projectColorInput = document.getElementById("projectColorInput");
+const projectHoursInput = document.getElementById("projectHoursInput");
+const saveProjectButton = document.getElementById("saveProjectButton");
+const cancelProjectButton = document.getElementById("cancelProjectButton");
+const projectsContainer = document.getElementById("projectsContainer");
 
 function save() {
   localStorage.setItem("sessions", JSON.stringify(sessions));
@@ -42,6 +51,88 @@ function renderProjectOptions() {
   addTaskButton.disabled = activeProjects.length === 0;
 }
 
+function openProjectForm() {
+  projectFormCard.hidden = false;
+  projectNameInput.focus();
+}
+
+function closeProjectForm() {
+  projectFormCard.hidden = true;
+  projectNameInput.value = "";
+  projectDescriptionInput.value = "";
+  projectColorInput.value = "#4f83cc";
+  projectHoursInput.value = "";
+}
+
+async function saveProject() {
+  if (!currentUser) return;
+
+  const name = projectNameInput.value.trim();
+  const description = projectDescriptionInput.value.trim();
+  const color = projectColorInput.value;
+  const estimatedHours = projectHoursInput.value === "" ? null : Number.parseFloat(projectHoursInput.value);
+
+  if (!name) {
+    alert("Enter a project name.");
+    return;
+  }
+
+  if (estimatedHours !== null && (!Number.isFinite(estimatedHours) || estimatedHours < 0)) {
+    alert("Enter a valid estimated time.");
+    return;
+  }
+
+  try {
+    saveProjectButton.disabled = true;
+
+    await createProject(currentUser.uid, {
+      name,
+      description,
+      color,
+      estimatedHours
+    });
+
+    projects = await getProjects(currentUser.uid);
+
+    renderProjects();
+    renderProjectOptions();
+    closeProjectForm();
+  } catch (error) {
+    console.error("Failed to create project:", error);
+    alert(error.message);
+  } finally {
+    saveProjectButton.disabled = false;
+  }
+}
+function renderProjects() {
+  const activeProjects = projects.filter(project => !project.archived);
+
+  if (activeProjects.length === 0) {
+    projectsContainer.innerHTML = `
+      <section class="empty-state">
+        <h3>No projects yet</h3>
+        <p>Create your first project to begin organizing tasks.</p>
+      </section>
+    `;
+    return;
+  }
+
+  projectsContainer.innerHTML = activeProjects.map(project => {
+    const projectTasks = tasks.filter(task => task.projectId === project.id && !task.archived);
+    const completedTasks = projectTasks.filter(task => task.completed).length;
+    const estimate = project.estimatedHours !== null && project.estimatedHours !== undefined ? `${project.estimatedHours.toFixed(2)} h estimated` : "No estimate";
+
+    return `
+      <section class="card project-card" style="border-top:5px solid ${project.color}">
+        <h3>${escapeHTML(project.name)}</h3>
+        <p>${escapeHTML(project.description || "No description")}</p>
+        <div>${projectTasks.length} tasks</div>
+        <div>${completedTasks} completed</div>
+        <div>${estimate}</div>
+      </section>
+    `;
+  }).join("");
+}
 async function loginWithGoogle() {
   try {
     await signInWithPopup(auth, googleProvider);
@@ -66,7 +157,7 @@ async function loadFirestoreData() {
   try {
     projects = await getProjects(currentUser.uid);
     tasks = await getTasks(currentUser.uid);
-
+    renderProjects();
     renderProjectOptions();
     console.log("Loaded projects:", projects);
     console.log("Loaded tasks:", tasks);
@@ -548,4 +639,10 @@ navButtons.forEach(button => {
     button.classList.add("active");
     document.getElementById(button.dataset.view).hidden = false;
   });
+});
+newProjectButton.addEventListener("click", openProjectForm);
+cancelProjectButton.addEventListener("click", closeProjectForm);
+saveProjectButton.addEventListener("click", saveProject);
+projectNameInput.addEventListener("keydown", event => {
+  if (event.key === "Enter") saveProject();
 });
