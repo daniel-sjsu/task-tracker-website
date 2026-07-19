@@ -1,11 +1,15 @@
 import { auth, db, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from "./firebase.js";
 import { doc, setDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
-import { createProject, getProjects, createTask, getTasks, getSessions, createSession} from "./database.js";
+import { createProject, getProjects, createTask, getTasks, getSessions, createSession, getTimerState, saveTimerState} from "./database.js";
 
 let projects = [];
 let tasks = [];
 let sessions = [];
-let state = JSON.parse(localStorage.getItem("state") || '{"runningTaskId":null,"startTime":null}');
+let state = {
+  runningTaskId: null,
+  runningProjectId: null,
+  startTime: null
+};
 
 let pieChart = null;
 let weeklyChart = null;
@@ -35,9 +39,6 @@ const saveProjectButton = document.getElementById("saveProjectButton");
 const cancelProjectButton = document.getElementById("cancelProjectButton");
 const projectsContainer = document.getElementById("projectsContainer");
 
-function save() {
-  localStorage.setItem("state", JSON.stringify(state));
-}
 
 function renderProjectOptions() {
   const activeProjects = projects.filter(project => !project.archived);
@@ -156,6 +157,7 @@ async function loadFirestoreData() {
   try {
     projects = await getProjects(currentUser.uid);
     tasks = await getTasks(currentUser.uid);
+    state = await getTimerState(currentUser.uid);
     sessions = await getSessions(currentUser.uid);
     sessions = sessions.map(session => ({
       ...session,
@@ -256,7 +258,6 @@ function deleteTask(id) {
 
   tasks = tasks.filter(item => item.id !== id);
 
-  save();
   render();
 }
 
@@ -272,7 +273,6 @@ async function completeTask(id) {
   task.completed = true;
   task.completedAt = Date.now();
 
-  save();
   render();
 }
 
@@ -283,7 +283,6 @@ function restoreTask(id) {
   task.completed = false;
   task.completedAt = null;
 
-  save();
   render();
 }
 
@@ -296,19 +295,33 @@ function toggleCompleted() {
 
 async function startTask(id) {
   const task = tasks.find(task => task.id === id);
-  if (!task || task.completed) return;
+  if (!task || task.completed || !currentUser) return;
 
   if (state.runningTaskId !== null) {
     await stopTask();
-
     if (state.runningTaskId !== null) return;
   }
 
-  state.runningTaskId = id;
-  state.startTime = Date.now();
+  state = {
+    runningTaskId: task.id,
+    runningProjectId: task.projectId,
+    startTime: Date.now()
+  };
 
-  save();
-  render();
+  try {
+    await saveTimerState(currentUser.uid, state);
+    render();
+  } catch (error) {
+    console.error("Failed to start timer:", error);
+
+    state = {
+      runningTaskId: null,
+      runningProjectId: null,
+      startTime: null
+    };
+
+    alert("The timer could not be started.");
+  }
 }
 
 async function stopTask() {
@@ -318,17 +331,14 @@ async function stopTask() {
   const task = tasks.find(task => task.id === state.runningTaskId);
 
   if (!task) {
-    state.runningTaskId = null;
-    state.startTime = null;
-    save();
-    render();
+    console.error("The running task could not be found.");
     return;
   }
 
   const project = projects.find(project => project.id === task.projectId);
 
   if (!project) {
-    console.error("Could not find the project assigned to this task.");
+    console.error("The running task's project could not be found.");
     return;
   }
 
@@ -344,9 +354,14 @@ async function stopTask() {
       source: "timer"
     });
 
-    state.runningTaskId = null;
-    state.startTime = null;
-    save();
+    const clearedState = {
+      runningTaskId: null,
+      runningProjectId: null,
+      startTime: null
+    };
+
+    await saveTimerState(currentUser.uid, clearedState);
+    state = clearedState;
 
     sessions = await getSessions(currentUser.uid);
     sessions = sessions.map(session => ({

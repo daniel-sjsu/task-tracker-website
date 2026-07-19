@@ -1,5 +1,5 @@
 import { db } from "./firebase.js";
-import { collection, addDoc, getDocs, getDoc, doc, updateDoc, deleteDoc, serverTimestamp, query, orderBy ,where, Timestamp} from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+import { collection, addDoc, getDocs, getDoc, setDoc ,doc, updateDoc, deleteDoc, serverTimestamp, query, orderBy ,where, Timestamp} from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
 export async function createProject(userId, projectData) {
   if (!userId) throw new Error("A signed-in user is required.");
@@ -261,4 +261,46 @@ export async function deleteSession(userId, sessionId) {
 
   const sessionReference = doc(db, "users", userId, "sessions", sessionId);
   await deleteDoc(sessionReference);
+}
+
+export async function getTimerState(userId) {
+  if (!userId) throw new Error("A signed-in user is required.");
+
+  const stateReference = doc(db, "users", userId, "app", "state");
+  const snapshot = await getDoc(stateReference);
+
+  if (!snapshot.exists()) {
+    return {
+      runningTaskId: null,
+      runningProjectId: null,
+      startTime: null
+    };
+  }
+
+  const data = snapshot.data();
+
+  return {
+    runningTaskId: data.runningTaskId ?? null,
+    runningProjectId: data.runningProjectId ?? null,
+    startTime: data.startTime?.toMillis ? data.startTime.toMillis() : data.startTime ?? null
+  };
+}
+
+export async function saveTimerState(userId, stateData) {
+  if (!userId) throw new Error("A signed-in user is required.");
+
+  const startTime = stateData.startTime instanceof Date
+    ? Timestamp.fromDate(stateData.startTime)
+    : stateData.startTime !== null
+      ? Timestamp.fromMillis(stateData.startTime)
+      : null;
+
+  const stateReference = doc(db, "users", userId, "app", "state");
+
+  await setDoc(stateReference, {
+    runningTaskId: stateData.runningTaskId ?? null,
+    runningProjectId: stateData.runningProjectId ?? null,
+    startTime,
+    updatedAt: serverTimestamp()
+  });
 }
