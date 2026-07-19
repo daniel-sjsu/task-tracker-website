@@ -1,5 +1,5 @@
 import { db } from "./firebase.js";
-import { collection, addDoc, getDocs, getDoc, setDoc ,doc, updateDoc, deleteDoc, serverTimestamp, query, orderBy ,where, Timestamp} from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+import { collection, addDoc, getDocs, getDoc, setDoc ,doc, updateDoc, deleteDoc, serverTimestamp, query, orderBy ,where, Timestamp, onSnapshot} from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
 export async function createProject(userId, projectData) {
   if (!userId) throw new Error("A signed-in user is required.");
@@ -152,6 +152,14 @@ export async function restoreArchivedTask(userId, taskId) {
   await updateTask(userId, taskId, { archived: false });
 }
 
+export async function deleteTask(userId, taskId) {
+  if (!userId) throw new Error("A signed-in user is required.");
+  if (!taskId) throw new Error("A task ID is required.");
+
+  const taskReference = doc(db, "users", userId, "tasks", taskId);
+  await deleteDoc(taskReference);
+}
+
 export async function createSession(userId, sessionData) {
   if (!userId) throw new Error("A signed-in user is required.");
   if (!sessionData.projectId) throw new Error("A project ID is required.");
@@ -302,5 +310,33 @@ export async function saveTimerState(userId, stateData) {
     runningProjectId: stateData.runningProjectId ?? null,
     startTime,
     updatedAt: serverTimestamp()
+  });
+}
+
+export function listenToTimerState(userId, onChange, onError) {
+  if (!userId) throw new Error("A signed-in user is required.");
+
+  const stateReference = doc(db, "users", userId, "app", "state");
+
+  return onSnapshot(stateReference, snapshot => {
+    if (!snapshot.exists()) {
+      onChange({
+        runningTaskId: null,
+        runningProjectId: null,
+        startTime: null
+      });
+      return;
+    }
+
+    const data = snapshot.data();
+
+    onChange({
+      runningTaskId: data.runningTaskId ?? null,
+      runningProjectId: data.runningProjectId ?? null,
+      startTime: data.startTime?.toMillis ? data.startTime.toMillis() : data.startTime ?? null
+    });
+  }, error => {
+    console.error("Timer state listener failed:", error);
+    if (onError) onError(error);
   });
 }

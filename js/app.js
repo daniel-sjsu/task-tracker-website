@@ -1,6 +1,7 @@
 import { auth, db, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from "./firebase.js";
 import { doc, setDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
-import { createProject, getProjects, createTask, getTasks, getSessions, createSession, getTimerState, saveTimerState} from "./database.js";
+import { createProject, getProjects, createTask, getTasks, getSessions, createSession, getTimerState, saveTimerState, listenToTimerState} from "./database.js";
+import { deleteTask as deleteTaskFromFirestore, getTasks } from "./database.js";
 
 let projects = [];
 let tasks = [];
@@ -14,6 +15,7 @@ let state = {
 let pieChart = null;
 let weeklyChart = null;
 let currentUser = null;
+let unsubscribeTimerState = null;
 
 const nameInput = document.getElementById("name");
 const goalInput = document.getElementById("goal");
@@ -39,6 +41,22 @@ const saveProjectButton = document.getElementById("saveProjectButton");
 const cancelProjectButton = document.getElementById("cancelProjectButton");
 const projectsContainer = document.getElementById("projectsContainer");
 
+function startTimerStateListener() {
+  if (!currentUser) return;
+
+  if (unsubscribeTimerState) {
+    unsubscribeTimerState();
+    unsubscribeTimerState = null;
+  }
+
+  unsubscribeTimerState = listenToTimerState(currentUser.uid, newState => {
+    state = newState;
+    renderDashboard();
+    renderTasks();
+  }, error => {
+    userStatus.textContent = "Timer synchronization failed.";
+  });
+}
 
 function renderProjectOptions() {
   const activeProjects = projects.filter(project => !project.archived);
@@ -157,7 +175,6 @@ async function loadFirestoreData() {
   try {
     projects = await getProjects(currentUser.uid);
     tasks = await getTasks(currentUser.uid);
-    state = await getTimerState(currentUser.uid);
     sessions = await getSessions(currentUser.uid);
     sessions = sessions.map(session => ({
       ...session,
@@ -185,16 +202,29 @@ onAuthStateChanged(auth, async user => {
 
     try {
       await loadFirestoreData();
+      startTimerStateListener();
       render();
     } catch (error) {
+      console.error("Failed to initialize application:", error);
       userStatus.textContent = "Failed to load tracker data.";
       appContent.hidden = true;
     }
   } else {
+    if (unsubscribeTimerState) {
+      unsubscribeTimerState();
+      unsubscribeTimerState = null;
+    }
+
     projects = [];
     tasks = [];
-    currentUser = null;
+    sessions = [];
+    state = {
+      runningTaskId: null,
+      runningProjectId: null,
+      startTime: null
+    };
 
+    currentUser = null;
     userStatus.textContent = "Not signed in";
     loginButton.hidden = false;
     logoutButton.hidden = true;
@@ -244,21 +274,28 @@ async function addTask() {
   }
 }
 
-function deleteTask(id) {
-  const task = tasks.find(item => item.id === id);
+async function deleteTask(id) {
+  if (!currentUser) return;
+
+  const task = tasks.find(task => task.id === id);
   if (!task) return;
 
-  const confirmed = window.confirm(`Delete "${task.name}"?`);
-  if (!confirmed) return;
-
   if (state.runningTaskId === id) {
-    state.runningTaskId = null;
-    state.startTime = null;
+    alert("Stop the running timer before deleting this task.");
+    return;
   }
 
-  tasks = tasks.filter(item => item.id !== id);
+  if (!window.confirm(`Delete "${task.name}"?`)) return;
 
-  render();
+  try {
+    await deleteTaskFromFirestore(currentUser.uid, id);
+    tasks = await getTasks(currentUser.uid);
+    renderProjects();
+    render();
+  } catch (error) {
+    console.error("Failed to delete task:", error);
+    alert("The task could not be deleted.");
+  }
 }
 
 async function completeTask(id) {
@@ -302,24 +339,14 @@ async function startTask(id) {
     if (state.runningTaskId !== null) return;
   }
 
-  state = {
-    runningTaskId: task.id,
-    runningProjectId: task.projectId,
-    startTime: Date.now()
-  };
-
   try {
-    await saveTimerState(currentUser.uid, state);
-    render();
+    await saveTimerState(currentUser.uid, {
+      runningTaskId: task.id,
+      runningProjectId: task.projectId,
+      startTime: Date.now()
+    });
   } catch (error) {
     console.error("Failed to start timer:", error);
-
-    state = {
-      runningTaskId: null,
-      runningProjectId: null,
-      startTime: null
-    };
-
     alert("The timer could not be started.");
   }
 }
@@ -361,7 +388,6 @@ async function stopTask() {
     };
 
     await saveTimerState(currentUser.uid, clearedState);
-    state = clearedState;
 
     sessions = await getSessions(currentUser.uid);
     sessions = sessions.map(session => ({
