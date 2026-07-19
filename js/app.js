@@ -60,13 +60,18 @@ function startTimerStateListener() {
 
 function renderProjectOptions() {
   const activeProjects = projects.filter(project => !project.archived);
+  const generalProject = activeProjects.find(project => project.name.trim().toLowerCase() === "general");
 
   taskProjectInput.innerHTML = activeProjects.length
-    ? `<option value="">Select a project</option>${activeProjects.map(project => `<option value="${project.id}">${escapeHTML(project.name)}</option>`).join("")}`
+    ? activeProjects.map(project => `<option value="${project.id}">${escapeHTML(project.name)}</option>`).join("")
     : `<option value="">Create a project first</option>`;
 
   taskProjectInput.disabled = activeProjects.length === 0;
   addTaskButton.disabled = activeProjects.length === 0;
+
+  if (generalProject) {
+    taskProjectInput.value = generalProject.id;
+  }
 }
 
 function openProjectForm() {
@@ -233,44 +238,41 @@ onAuthStateChanged(auth, async user => {
 });
 
 async function addTask() {
-  const projectId = taskProjectInput.value;
-  const name = nameInput.value.trim();
-  const targetHours = goalInput.value === "" ? null : Number.parseFloat(goalInput.value);
+  if (!currentUser) return;
 
-  if (!projectId) {
-    alert("Select a project.");
-    return;
-  }
+  const name = nameInput.value.trim();
+  const generalProject = projects.find(project => !project.archived && project.name.trim().toLowerCase() === "general");
+  const projectId = taskProjectInput.value || generalProject?.id;
 
   if (!name) {
     alert("Enter a task name.");
     return;
   }
 
-  if (targetHours !== null && (!Number.isFinite(targetHours) || targetHours < 0)) {
-    alert("Enter a valid target time.");
+  if (!projectId) {
+    alert('Create a project named "General" first.');
     return;
   }
 
   try {
-    addTaskButton.disabled = true;
-
     await createTask(currentUser.uid, projectId, {
       name,
       description: "",
-      targetHours,
+      targetHours: goalInput.value ? Number(goalInput.value) : null,
       parentTaskId: null
     });
 
     tasks = await getTasks(currentUser.uid);
+
     nameInput.value = "";
     goalInput.value = "";
+    taskProjectInput.value = generalProject?.id || projectId;
+
+    renderProjects();
     render();
   } catch (error) {
     console.error("Failed to create task:", error);
-    alert(error.message);
-  } finally {
-    addTaskButton.disabled = false;
+    alert("The task could not be created.");
   }
 }
 
