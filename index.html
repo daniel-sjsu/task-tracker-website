@@ -196,6 +196,46 @@
         </div>
 
         <button id="addManualSessionButton" class="primary-button" type="button">Add Session</button>
+        <div id="manualSessionForm" class="card form-card" hidden>
+          <div class="section-heading">
+            <div>
+              <h3>Add Manual Session</h3>
+              <p>Record work that was not captured with the timer.</p>
+            </div>
+          </div>
+        
+          <div class="form-grid">
+            <label>
+              <span>Project</span>
+              <select id="manualSessionProjectInput"></select>
+            </label>
+        
+            <label>
+              <span>Task</span>
+              <select id="manualSessionTaskInput"></select>
+            </label>
+        
+            <label>
+              <span>Start</span>
+              <input id="manualSessionStartInput" type="datetime-local">
+            </label>
+        
+            <label>
+              <span>End</span>
+              <input id="manualSessionEndInput" type="datetime-local">
+            </label>
+        
+            <label class="full-width">
+              <span>Note</span>
+              <input id="manualSessionNoteInput" type="text" placeholder="Optional note">
+            </label>
+          </div>
+        
+          <div class="form-actions">
+            <button id="saveManualSessionButton" type="button">Save Session</button>
+            <button id="cancelManualSessionButton" type="button" class="secondary-button">Cancel</button>
+          </div>
+        </div>
       </div>
 
       <section class="card filter-bar">

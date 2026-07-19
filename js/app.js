@@ -42,7 +42,50 @@ const projectHoursInput = document.getElementById("projectHoursInput");
 const saveProjectButton = document.getElementById("saveProjectButton");
 const cancelProjectButton = document.getElementById("cancelProjectButton");
 const projectsContainer = document.getElementById("projectsContainer");
+const addManualSessionButton = document.getElementById("addManualSessionButton");
+const manualSessionForm = document.getElementById("manualSessionForm");
+const manualSessionProjectInput = document.getElementById("manualSessionProjectInput");
+const manualSessionTaskInput = document.getElementById("manualSessionTaskInput");
+const manualSessionStartInput = document.getElementById("manualSessionStartInput");
+const manualSessionEndInput = document.getElementById("manualSessionEndInput");
+const manualSessionNoteInput = document.getElementById("manualSessionNoteInput");
+const saveManualSessionButton = document.getElementById("saveManualSessionButton");
+const cancelManualSessionButton = document.getElementById("cancelManualSessionButton");
 
+function formatDateTimeLocal(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function renderManualSessionProjectOptions() {
+  const activeProjects = projects.filter(project => !project.archived);
+
+  manualSessionProjectInput.innerHTML = activeProjects.length
+    ? activeProjects.map(project => `<option value="${project.id}">${escapeHTML(project.name)}</option>`).join("")
+    : `<option value="">No active projects</option>`;
+
+  const generalProject = activeProjects.find(project => project.name.trim().toLowerCase() === "general");
+
+  if (generalProject) manualSessionProjectInput.value = generalProject.id;
+
+  renderManualSessionTaskOptions();
+}
+
+function renderManualSessionTaskOptions() {
+  const projectId = manualSessionProjectInput.value;
+  const projectTasks = tasks.filter(task => task.projectId === projectId && !task.archived);
+
+  manualSessionTaskInput.innerHTML = projectTasks.length
+    ? projectTasks.map(task => `<option value="${task.id}">${escapeHTML(task.name)}</option>`).join("")
+    : `<option value="">No tasks available</option>`;
+
+  manualSessionTaskInput.disabled = projectTasks.length === 0;
+  saveManualSessionButton.disabled = projectTasks.length === 0;
+}
 function startTimerStateListener() {
   if (!currentUser) return;
 
@@ -320,6 +363,79 @@ function renderProjects() {
 
   projectsContainer.innerHTML = activeHTML + archivedHTML;
 }
+
+function openManualSessionForm() {
+  renderManualSessionProjectOptions();
+
+  const end = new Date();
+  const start = new Date(end.getTime() - 60 * 60 * 1000);
+
+  manualSessionStartInput.value = formatDateTimeLocal(start);
+  manualSessionEndInput.value = formatDateTimeLocal(end);
+  manualSessionNoteInput.value = "";
+  manualSessionForm.hidden = false;
+}
+
+function closeManualSessionForm() {
+  manualSessionForm.hidden = true;
+  manualSessionStartInput.value = "";
+  manualSessionEndInput.value = "";
+  manualSessionNoteInput.value = "";
+}
+
+async function saveManualSession() {
+  if (!currentUser) return;
+
+  const projectId = manualSessionProjectInput.value;
+  const taskId = manualSessionTaskInput.value;
+  const project = projects.find(project => project.id === projectId);
+  const task = tasks.find(task => task.id === taskId);
+  const start = new Date(manualSessionStartInput.value);
+  const end = new Date(manualSessionEndInput.value);
+  const note = manualSessionNoteInput.value.trim();
+
+  if (!project || !task) {
+    alert("Select a valid project and task.");
+    return;
+  }
+
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+    alert("Enter valid start and end times.");
+    return;
+  }
+
+  if (end <= start) {
+    alert("The end time must be after the start time.");
+    return;
+  }
+
+  try {
+    saveManualSessionButton.disabled = true;
+
+    await createSession(currentUser.uid, {
+      projectId: project.id,
+      taskId: task.id,
+      projectName: project.name,
+      taskName: task.name,
+      start,
+      end,
+      note,
+      source: "manual"
+    });
+
+    sessions = normalizeSessions(await getSessions(currentUser.uid));
+
+    closeManualSessionForm();
+    render();
+  } catch (error) {
+    console.error("Failed to create manual session:", error);
+    alert(error.message || "The manual session could not be saved.");
+  } finally {
+    saveManualSessionButton.disabled = false;
+  }
+}
+
+
 async function loginWithGoogle() {
   try {
     await signInWithPopup(auth, googleProvider);
@@ -347,6 +463,7 @@ async function loadFirestoreData() {
     sessions = normalizeSessions(await getSessions(currentUser.uid));
     renderProjects();
     renderProjectOptions();
+    renderManualSessionProjectOptions();
     console.log("Loaded projects:", projects);
     console.log("Loaded tasks:", tasks);
   } catch (error) {
@@ -953,3 +1070,7 @@ projectsContainer.addEventListener("click", handleProjectAction);
 projectNameInput.addEventListener("keydown", event => {
   if (event.key === "Enter") saveProject();
 });
+addManualSessionButton.addEventListener("click", openManualSessionForm);
+cancelManualSessionButton.addEventListener("click", closeManualSessionForm);
+saveManualSessionButton.addEventListener("click", saveManualSession);
+manualSessionProjectInput.addEventListener("change", renderManualSessionTaskOptions);
