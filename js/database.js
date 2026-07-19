@@ -340,3 +340,14 @@ export function listenToTimerState(userId, onChange, onError) {
     if (onError) onError(error);
   });
 }
+
+export async function deleteSessionsByTask(userId, taskId) {
+  if (!userId) throw new Error("A signed-in user is required.");
+  if (!taskId) throw new Error("A task ID is required.");
+
+  const sessionsReference = collection(db, "users", userId, "sessions");
+  const sessionsQuery = query(sessionsReference, where("taskId", "==", taskId));
+  const snapshot = await getDocs(sessionsQuery);
+
+  await Promise.all(snapshot.docs.map(sessionDocument => deleteDoc(sessionDocument.ref)));
+}

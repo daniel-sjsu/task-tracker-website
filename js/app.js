@@ -1,7 +1,7 @@
 import { auth, db, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from "./firebase.js";
 import { doc, setDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 import { createProject, getProjects, createTask, getTasks, getSessions, createSession, getTimerState, saveTimerState, listenToTimerState} from "./database.js";
-import { deleteTask as deleteTaskFromFirestore } from "./database.js";
+import { deleteTask as deleteTaskFromFirestore, deleteSessionsByTask } from "./database.js";
 
 let projects = [];
 let tasks = [];
@@ -282,11 +282,15 @@ async function deleteTask(id) {
     return;
   }
 
-  if (!window.confirm(`Delete "${task.name}"?`)) return;
+  if (!window.confirm(`Delete "${task.name}" and all of its tracked time?`)) return;
 
   try {
+    await deleteSessionsByTask(currentUser.uid, id);
     await deleteTaskFromFirestore(currentUser.uid, id);
+
     tasks = await getTasks(currentUser.uid);
+    sessions = normalizeSessions(await getSessions(currentUser.uid));
+
     renderProjects();
     render();
   } catch (error) {
