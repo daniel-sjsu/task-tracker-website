@@ -78,6 +78,7 @@ onAuthStateChanged(auth, user => {
     logoutButton.hidden = false;
     appContent.hidden = false;
     console.log("Firebase user UID:", user.uid);
+    testProjectCreation();
     render();
   } else {
     userStatus.textContent = "Not signed in";
@@ -492,5 +493,3 @@ setInterval(() => {
     renderDashboard();
     renderTasks();
   }, 1000);
-
-testProjectCreation();
