@@ -646,52 +646,6 @@ function createTaskElement(task) {
   return taskElement;
 }
 
-function renderCompletedTasks() {
-  completedTasks.innerHTML = "";
-
-  const completed = tasks.filter(task => task.completed && !task.archived);
-
-  if (completed.length === 0) {
-    completedTasksHeading.hidden = true;
-    return;
-  }
-
-  completedTasksHeading.hidden = false;
-
-  const projectGroups = completed.reduce((groups, task) => {
-    const projectId = task.projectId || "unknown";
-
-    if (!groups[projectId]) groups[projectId] = [];
-    groups[projectId].push(task);
-
-    return groups;
-  }, {});
-
-  const sortedProjectGroups = Object.entries(projectGroups).sort(([, tasksA], [, tasksB]) => {
-    const newestA = Math.max(...tasksA.map(task => getCompletedTimestamp(task)));
-    const newestB = Math.max(...tasksB.map(task => getCompletedTimestamp(task)));
-    return newestB - newestA;
-  });
-
-  sortedProjectGroups.forEach(([projectId, projectTasks]) => {
-    const project = projects.find(project => project.id === projectId);
-    const group = document.createElement("div");
-
-    group.className = "completed-project-group";
-
-    group.innerHTML = `
-      <h3 class="completed-project-heading">
-        ${project ? `<span style="background:${project.color}"></span>${escapeHTML(project.name)}` : "Unknown project"}
-      </h3>
-    `;
-
-    projectTasks.sort((a, b) => getCompletedTimestamp(b) - getCompletedTimestamp(a)).forEach(task => {
-      group.appendChild(createTaskElement(task));
-    });
-
-    completedTasks.appendChild(group);
-  });
-}
 
 function renderTasks() {
   activeTasksContainer.innerHTML = "";
