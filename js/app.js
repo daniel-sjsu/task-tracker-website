@@ -1,7 +1,7 @@
 import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from "./firebase.js";
 import {  createProject, getProjects, deleteProjectAndData, updateProject as updateProjectInFirestore, archiveProject as archiveProjectInFirestore, restoreProject as restoreProjectInFirestore,
           createTask, getTasks, completeTask as completeTaskInFirestore, reopenTask, deleteTask as deleteTaskFromFirestore, deleteSessionsByTask,
-          getSessions, createSession, 
+          getSessions, createSession, deleteSession as deleteSessionFromFirestore,
           saveTimerState, listenToTimerState } from "./database.js";
 
 let projects = [];
@@ -362,6 +362,39 @@ function renderProjects() {
     : "";
 
   projectsContainer.innerHTML = activeHTML + archivedHTML;
+}
+
+async function handleSessionAction(event) {
+  const button = event.target.closest("button[data-session-action]");
+  if (!button) return;
+
+  if (button.dataset.sessionAction === "delete") {
+    await deleteSession(button.dataset.sessionId);
+  }
+}
+
+async function deleteSession(sessionId) {
+  if (!currentUser) return;
+
+  const session = sessions.find(session => session.id === sessionId);
+  if (!session) return;
+
+  const confirmed = window.confirm(
+    `Delete this session for "${session.taskName}"?\n\n` +
+    `${new Date(session.start).toLocaleString()} — ${formatDuration(session.durationSeconds)}\n\n` +
+    `This cannot be undone.`
+  );
+
+  if (!confirmed) return;
+
+  try {
+    await deleteSessionFromFirestore(currentUser.uid, sessionId);
+    sessions = normalizeSessions(await getSessions(currentUser.uid));
+    render();
+  } catch (error) {
+    console.error("Failed to delete session:", error);
+    alert("The session could not be deleted.");
+  }
 }
 
 function openManualSessionForm() {
@@ -1074,3 +1107,6 @@ addManualSessionButton.addEventListener("click", openManualSessionForm);
 cancelManualSessionButton.addEventListener("click", closeManualSessionForm);
 saveManualSessionButton.addEventListener("click", saveManualSession);
 manualSessionProjectInput.addEventListener("change", renderManualSessionTaskOptions);
+
+history.addEventListener("click", handleSessionAction);
+fullHistoryContainer.addEventListener("click", handleSessionAction);
