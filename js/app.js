@@ -1109,4 +1109,4 @@ saveManualSessionButton.addEventListener("click", saveManualSession);
 manualSessionProjectInput.addEventListener("change", renderManualSessionTaskOptions);
 
 history.addEventListener("click", handleSessionAction);
-fullHistoryContainer.addEventListener("click", handleSessionAction);
+historyContainer.addEventListener("click", handleSessionAction);
