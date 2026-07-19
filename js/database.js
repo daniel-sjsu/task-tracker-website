@@ -61,3 +61,82 @@ export async function restoreProject(userId, projectId) {
 }
 
 
+export async function createTask(userId, projectId,taskData) {
+    if (!userId) throw new Error("A signed-in user is required.");
+    if (!projectId) throw new Error("A project ID is required.");
+    if (!taskData.name?.trim()) throw new Error("A task name is required.");
+    const targetHours = taskData.targetHours ?? null;
+
+    if (targetHours !== null && (!Number.isFinite(targetHours) || targetHours < 0)) {
+        throw new Error("Target hours must be null or a non-negative number.");
+    }
+    const task = {
+      projectId: projectId,
+      parentTaskId: taskData.parentTaskId ?? null,
+      name: taskData.name.trim(),
+      description: taskData.description?.trim() || "",
+      targetHours: taskData.targetHours ?? null,
+      completed: false,
+      archived: false,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      completedAt: null
+    };
+    const tasksCollection = collection(db, "users", userId, "tasks");
+    const taskDocument = await addDoc(tasksCollection, task);
+    return taskDocument.id;
+    }
+
+export async function getTasks(userId) {
+    if (!userId) throw new Error("A signed-in user is required.");
+    const tasksCollection = collection(db, "users", userId, "tasks");
+    const tasksQuery = query(tasksCollection, orderBy("createdAt", "asc"));
+    const snapshot = await getDocs(tasksQuery);
+    return snapshot.docs.map(taskDocument => ({
+      id: taskDocument.id,
+      ...taskDocument.data()
+    }));
+  }
+
+export async function updateTask(userId, taskId, changes){
+    if (!userId) throw new Error("A signed-in user is required.");
+    if (!taskId) throw new Error("A task ID is required.");
+    const allowedChanges = {};
+    if (changes.name !== undefined) {
+        const name = changes.name.trim();
+        if (!name) throw new Error("A task name is required.");
+        allowedChanges.name = name;
+      }
+    if (changes.description !== undefined) allowedChanges.description = changes.description.trim();
+    if (changes.targetHours !== undefined) {
+        if (changes.targetHours !== null && (!Number.isFinite(changes.targetHours) || changes.targetHours < 0)) {
+          throw new Error("Target hours must be null or a non-negative number.");
+        }
+      
+        allowedChanges.targetHours = changes.targetHours;
+      }
+    if (changes.archived !== undefined) allowedChanges.archived = changes.archived;
+    if (changes.projectId !== undefined) allowedChanges.projectId = changes.projectId;
+    if (changes.parentTaskId !== undefined) allowedChanges.parentTaskId = changes.parentTaskId;
+    if (changes.completed !== undefined) allowedChanges.completed = changes.completed;
+    if (changes.completedAt !== undefined) allowedChanges.completedAt = changes.completedAt;
+    allowedChanges.updatedAt = serverTimestamp();
+    const taskReference = doc(db, "users", userId, "tasks", taskId);
+    await updateDoc(taskReference, allowedChanges);
+}
+
+export async function archiveTask(userId, taskId) {
+  await updateTask(userId, taskId, { archived: true });
+}
+
+export async function restoreTask(userId, taskId) {
+  await updateTask(userId, taskId, { archived: false });
+}
+
+export async function completeTask(userId, taskId) {
+    await updateTask(userId, taskId, { completed: true, completedAt: serverTimestamp() });
+}
+  
+export async function reopenTask(userId, taskId) {
+    await updateTask(userId, taskId, { completed: false, completedAt: null });
+}
