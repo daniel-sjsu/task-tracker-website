@@ -109,6 +109,52 @@ function editProject(projectId) {
   openProjectForm(project);
 }
 
+async function deleteProject(projectId) {
+  if (!currentUser) return;
+
+  const project = projects.find(project => project.id === projectId);
+  if (!project) return;
+
+  if (project.name.trim().toLowerCase() === "general") {
+    alert('The "General" project cannot be deleted because it is the default project.');
+    return;
+  }
+
+  const runningTask = tasks.find(task => task.id === state.runningTaskId);
+
+  if (runningTask?.projectId === projectId) {
+    alert("Stop the running task before deleting this project.");
+    return;
+  }
+
+  const projectTaskCount = tasks.filter(task => task.projectId === projectId).length;
+  const projectSessionCount = sessions.filter(session => session.projectId === projectId).length;
+
+  const confirmed = window.confirm(
+    `Permanently delete "${project.name}"?\n\n` +
+    `This will also delete ${projectTaskCount} task${projectTaskCount === 1 ? "" : "s"} and ` +
+    `${projectSessionCount} tracked session${projectSessionCount === 1 ? "" : "s"}.\n\n` +
+    `This cannot be undone.`
+  );
+
+  if (!confirmed) return;
+
+  try {
+    await deleteProjectAndData(currentUser.uid, projectId);
+
+    projects = await getProjects(currentUser.uid);
+    tasks = await getTasks(currentUser.uid);
+    sessions = normalizeSessions(await getSessions(currentUser.uid));
+
+    renderProjects();
+    renderProjectOptions();
+    render();
+  } catch (error) {
+    console.error("Failed to delete project:", error);
+    alert("The project could not be deleted.");
+  }
+}
+
 async function archiveProject(projectId) {
   if (!currentUser) return;
 
@@ -229,51 +275,7 @@ function renderProjects() {
     `;
     return;
   }
-  async function deleteProject(projectId) {
-    if (!currentUser) return;
   
-    const project = projects.find(project => project.id === projectId);
-    if (!project) return;
-  
-    if (project.name.trim().toLowerCase() === "general") {
-      alert('The "General" project cannot be deleted because it is the default project.');
-      return;
-    }
-  
-    const runningTask = tasks.find(task => task.id === state.runningTaskId);
-  
-    if (runningTask?.projectId === projectId) {
-      alert("Stop the running task before deleting this project.");
-      return;
-    }
-  
-    const projectTaskCount = tasks.filter(task => task.projectId === projectId).length;
-    const projectSessionCount = sessions.filter(session => session.projectId === projectId).length;
-  
-    const confirmed = window.confirm(
-      `Permanently delete "${project.name}"?\n\n` +
-      `This will also delete ${projectTaskCount} task${projectTaskCount === 1 ? "" : "s"} and ` +
-      `${projectSessionCount} tracked session${projectSessionCount === 1 ? "" : "s"}.\n\n` +
-      `This cannot be undone.`
-    );
-  
-    if (!confirmed) return;
-  
-    try {
-      await deleteProjectAndData(currentUser.uid, projectId);
-  
-      projects = await getProjects(currentUser.uid);
-      tasks = await getTasks(currentUser.uid);
-      sessions = normalizeSessions(await getSessions(currentUser.uid));
-  
-      renderProjects();
-      renderProjectOptions();
-      render();
-    } catch (error) {
-      console.error("Failed to delete project:", error);
-      alert("The project could not be deleted.");
-    }
-  }
   const createProjectCard = project => {
     const projectTasks = tasks.filter(task => task.projectId === project.id && !task.archived);
     const completedCount = projectTasks.filter(task => task.completed).length;
