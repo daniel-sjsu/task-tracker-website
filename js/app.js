@@ -180,12 +180,7 @@ async function loadFirestoreData() {
   try {
     projects = await getProjects(currentUser.uid);
     tasks = await getTasks(currentUser.uid);
-    sessions = await getSessions(currentUser.uid);
-    sessions = sessions.map(session => ({
-      ...session,
-      start: session.start?.toMillis ? session.start.toMillis() : session.start,
-      end: session.end?.toMillis ? session.end.toMillis() : session.end
-    }));
+    sessions = normalizeSessions(await getSessions(currentUser.uid));
     renderProjects();
     renderProjectOptions();
     console.log("Loaded projects:", projects);
@@ -391,12 +386,7 @@ async function stopTask() {
 
     await saveTimerState(currentUser.uid, clearedState);
 
-    sessions = await getSessions(currentUser.uid);
-    sessions = sessions.map(session => ({
-      ...session,
-      start: session.start?.toMillis ? session.start.toMillis() : session.start,
-      end: session.end?.toMillis ? session.end.toMillis() : session.end
-    }));
+    sessions = normalizeSessions(await getSessions(currentUser.uid));
 
     render();
   } catch (error) {
@@ -406,18 +396,27 @@ async function stopTask() {
 }
 
 function formatDuration(seconds) {
-  const safeSeconds = Math.max(0, Math.floor(seconds));
-  const hours = Math.floor(safeSeconds / 3600);
-  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  seconds = Number(seconds);
+
+  if (!Number.isFinite(seconds) || seconds < 0) seconds = 0;
+
+  const totalMinutes = Math.floor(seconds / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
 
   return `${hours}h ${minutes}m`;
 }
+function getTaskSessionSeconds(taskId) {
+  return sessions
+    .filter(session => session.taskId === taskId)
+    .reduce((total, session) => total + Number(session.durationSeconds || 0), 0);
+}
 
 function getCurrentSeconds(task) {
-  let seconds = task.total;
+  let seconds = getTaskSessionSeconds(task.id);
 
-  if (state.runningTaskId === task.id && state.startTime !== null) {
-    seconds += (Date.now() - state.startTime) / 1000;
+  if (state.runningTaskId === task.id && Number.isFinite(Number(state.startTime))) {
+    seconds += Math.max(0, (Date.now() - Number(state.startTime)) / 1000);
   }
 
   return seconds;
@@ -433,7 +432,14 @@ function getTodaySessions() {
   const startOfToday = getStartOfToday();
   return sessions.filter(session => session.start >= startOfToday);
 }
-
+function normalizeSessions(sessionDocuments) {
+  return sessionDocuments.map(session => ({
+    ...session,
+    start: session.start?.toMillis ? session.start.toMillis() : Number(session.start),
+    end: session.end?.toMillis ? session.end.toMillis() : Number(session.end),
+    durationSeconds: Number(session.durationSeconds || 0)
+  }));
+}
 function escapeHTML(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -445,10 +451,10 @@ function escapeHTML(value) {
 
 function renderDashboard() {
   const today = getTodaySessions();
-  const todayHours = today.reduce((sum, session) => sum + session.duration, 0) / 3600;
+  const todayHours = today.reduce((sum, session) => sum + session.durationSeconds, 0) / 3600;
   const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const weekHours = sessions.filter(session => session.start >= sevenDaysAgo).reduce((sum, session) => sum + session.duration, 0) / 3600;
-  const goalHours = tasks.filter(task => !task.completed).reduce((sum, task) => sum + task.goal, 0);
+  const weekHours = sessions.filter(session => session.start >= sevenDaysAgo).reduce((sum, session) => sum + session.durationSeconds, 0) / 3600;
+  const goalHours = tasks.filter(task => !task.completed).reduce((sum, task) => sum + Number(task.targetHours || 0), 0);
   const completedCount = tasks.filter(task => task.completed).length;
   const completionRate = tasks.length > 0 ? completedCount / tasks.length * 100 : 0;
   const runningTask = tasks.find(task => task.id === state.runningTaskId);
@@ -474,7 +480,7 @@ function renderHistory() {
     const startTime = new Date(session.start).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     const endTime = new Date(session.end).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
-    return `<div>${startTime} - ${endTime} - ${escapeHTML(session.taskName)} (${formatDuration(session.duration)})</div>`;
+    return `<div>${startTime} - ${endTime} - ${escapeHTML(session.taskName)} (${formatDuration(session.durationSeconds)})</div>`;
   }).join("");
 }
 
@@ -482,7 +488,7 @@ function renderPie() {
   const totals = {};
 
   getTodaySessions().forEach(session => {
-    totals[session.taskName] = (totals[session.taskName] || 0) + session.duration / 3600;
+    totals[session.taskName] = (totals[session.taskName] || 0) + session.durationSeconds / 3600;
   });
 
   const labels = Object.keys(totals);
@@ -531,7 +537,7 @@ function renderWeekly() {
 
     return sessions
       .filter(session => session.start >= date.getTime() && session.start < nextDate.getTime())
-      .reduce((sum, session) => sum + session.duration, 0) / 3600;
+      .reduce((sum, session) => sum + session.durationSeconds, 0) / 3600;
   });
 
   if (weeklyChart) weeklyChart.destroy();
@@ -566,10 +572,11 @@ function createTaskElement(task) {
   const projectLabel = project ? `<div class="task-project"><span style="background:${project.color}"></span>${escapeHTML(project.name)}</div>` : "";
 
   const seconds = getCurrentSeconds(task);
-  const targetHours = task.targetHours ?? 0;
-  const goalSeconds = targetHours * 3600;
-  const percentage = goalSeconds > 0 ? seconds / goalSeconds * 100 : 0;
-  const differenceHours = goalSeconds > 0 ? (seconds - goalSeconds) / 3600 : null;
+  const targetHours = Number(task.targetHours);
+  const hasTarget = Number.isFinite(targetHours) && targetHours > 0;
+  const goalSeconds = hasTarget ? targetHours * 3600 : 0;
+  const percentage = hasTarget ? seconds / goalSeconds * 100 : 0;
+  const differenceHours = hasTarget ? (seconds - goalSeconds) / 3600 : null;
   const taskElement = document.createElement("div");
 
   taskElement.className = [
@@ -589,17 +596,16 @@ function createTaskElement(task) {
     ? `<button type="button" data-action="restore" data-task-id="${task.id}">Restore</button>`
     : `<button type="button" data-action="complete" data-task-id="${task.id}">Complete</button>`;
 
-  const targetDisplay = task.targetHours !== null && task.targetHours !== undefined
-    ? `<div>Target: ${task.targetHours.toFixed(2)} h</div>`
+  const targetDisplay = hasTarget
+    ? `<div>Target: ${targetHours.toFixed(2)} h</div>`
     : `<div>Target: None</div>`;
 
-  const progressDisplay = goalSeconds > 0
-    ? `
-      <div>${differenceHours >= 0 ? `Overrun: +${differenceHours.toFixed(2)} h` : `Remaining: ${Math.abs(differenceHours).toFixed(2)} h`}</div>
-      <div>${percentage.toFixed(1)}%</div>
-      <div class="progress"><div class="bar" style="width:${Math.min(percentage, 100)}%"></div></div>
-    `
-    : "";
+  const progressDisplay = hasTarget
+    ? `<div>${differenceHours >= 0 ? `Overrun: +${differenceHours.toFixed(2)} h` : `Remaining: ${Math.abs(differenceHours).toFixed(2)} h`}</div>
+       <div>${percentage.toFixed(1)}%</div>
+       <div class="progress"><div class="bar" style="width:${Math.min(Math.max(percentage, 0), 100)}%"></div></div>`
+    : `<div>0.0%</div>
+       <div class="progress"><div class="bar" style="width:0%"></div></div>`;
 
   taskElement.innerHTML = `
     ${projectLabel}
@@ -637,7 +643,7 @@ function exportCSV() {
 
   sessions.forEach(session => {
     const safeTaskName = String(session.taskName).replaceAll('"', '""');
-    csv += `"${safeTaskName}","${new Date(session.start).toISOString()}","${new Date(session.end).toISOString()}",${(session.duration / 3600).toFixed(2)}\n`;
+    csv += `"${safeTaskName}","${new Date(session.start).toISOString()}","${new Date(session.end).toISOString()}",${(session.durationSeconds / 3600).toFixed(2)}\n`;
   });
 
   const blob = new Blob([csv], { type: "text/csv" });
