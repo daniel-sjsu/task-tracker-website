@@ -1,5 +1,6 @@
 import { auth, db, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from "./firebase.js";
 import { doc, setDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+import { createProject, getProjects } from "./database.js";
 
 let tasks = JSON.parse(localStorage.getItem("tasks") || "[]");
 let sessions = JSON.parse(localStorage.getItem("sessions") || "[]");
@@ -47,20 +48,26 @@ async function logoutUser() {
   }
 }
 
-async function testFirestoreConnection() {
+async function testProjectCreation() {
   if (!currentUser) return;
 
   try {
-    await setDoc(doc(db, "users", currentUser.uid, "app", "connectionTest"), {
-      message: "Firestore connection successful",
-      timestamp: Date.now()
+    const projectId = await createProject(currentUser.uid, {
+      name: "Test Project",
+      description: "Temporary Firestore project test",
+      color: "#4f83cc",
+      targetHours: 10
     });
 
-    console.log("Firestore test write succeeded.");
+    console.log("Created project:", projectId);
+
+    const projects = await getProjects(currentUser.uid);
+    console.log("Projects:", projects);
   } catch (error) {
-    console.error("Firestore test write failed:", error);
+    console.error("Project test failed:", error);
   }
 }
+testProjectCreation();
 
 onAuthStateChanged(auth, user => {
   currentUser = user;
@@ -71,7 +78,6 @@ onAuthStateChanged(auth, user => {
     logoutButton.hidden = false;
     appContent.hidden = false;
     console.log("Firebase user UID:", user.uid);
-    testFirestoreConnection();
     render();
   } else {
     userStatus.textContent = "Not signed in";
