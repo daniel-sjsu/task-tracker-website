@@ -27,7 +27,8 @@ const completedTasksHeading = document.getElementById("completedTasksHeading");
 const activeTasksContainer = document.getElementById("tasks");
 const completedTasksContainer = document.getElementById("completedTasks");
 const dashboardContainer = document.getElementById("dashboard");
-const historyContainer = document.getElementById("history");
+const todayHistoryContainer = document.getElementById("history");
+const historyContainer = document.getElementById("fullHistoryContainer");
 const loginButton = document.getElementById("loginButton");
 const logoutButton = document.getElementById("logoutButton");
 const userStatus = document.getElementById("userStatus");
@@ -804,11 +805,11 @@ function renderHistory() {
   const todaySessions = [...getTodaySessions()].sort((a, b) => b.start - a.start);
 
   if (todaySessions.length === 0) {
-    historyContainer.textContent = "No sessions today";
+    todayHistoryContainer.textContent = "No sessions today";
     return;
   }
 
-  historyContainer.innerHTML = todaySessions.map(session => {
+  todayHistoryContainer.innerHTML = todaySessions.map(session => {
     const startTime = new Date(session.start).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     const endTime = new Date(session.end).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
@@ -1108,5 +1109,5 @@ cancelManualSessionButton.addEventListener("click", closeManualSessionForm);
 saveManualSessionButton.addEventListener("click", saveManualSession);
 manualSessionProjectInput.addEventListener("change", renderManualSessionTaskOptions);
 
-history.addEventListener("click", handleSessionAction);
+todayHistoryContainer.addEventListener("click", handleSessionAction);
 historyContainer.addEventListener("click", handleSessionAction);
