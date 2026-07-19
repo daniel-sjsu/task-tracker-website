@@ -1,7 +1,5 @@
-import { auth, db, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from "./firebase.js";
-import { doc, setDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
-import { createProject, getProjects, createTask, getTasks, getSessions, createSession, getTimerState, saveTimerState, listenToTimerState} from "./database.js";
-import { deleteTask as deleteTaskFromFirestore, deleteSessionsByTask } from "./database.js";
+import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from "./firebase.js";
+import { createProject, getProjects, createTask, getTasks, getSessions, createSession, saveTimerState, listenToTimerState, completeTask as completeTaskInFirestore, reopenTask, deleteTask as deleteTaskFromFirestore, deleteSessionsByTask } from "./database.js";
 
 let projects = [];
 let tasks = [];
@@ -307,6 +305,8 @@ async function deleteTask(id) {
 }
 
 async function completeTask(id) {
+  if (!currentUser) return;
+
   const task = tasks.find(task => task.id === id);
   if (!task) return;
 
@@ -315,20 +315,32 @@ async function completeTask(id) {
     if (state.runningTaskId === id) return;
   }
 
-  task.completed = true;
-  task.completedAt = Date.now();
-
-  render();
+  try {
+    await completeTaskInFirestore(currentUser.uid, id);
+    tasks = await getTasks(currentUser.uid);
+    renderProjects();
+    render();
+  } catch (error) {
+    console.error("Failed to complete task:", error);
+    alert("The task could not be completed.");
+  }
 }
 
-function restoreTask(id) {
-  const task = tasks.find(item => item.id === id);
+async function restoreTask(id) {
+  if (!currentUser) return;
+
+  const task = tasks.find(task => task.id === id);
   if (!task) return;
 
-  task.completed = false;
-  task.completedAt = null;
-
-  render();
+  try {
+    await reopenTask(currentUser.uid, id);
+    tasks = await getTasks(currentUser.uid);
+    renderProjects();
+    render();
+  } catch (error) {
+    console.error("Failed to restore task:", error);
+    alert("The task could not be restored.");
+  }
 }
 
 function toggleCompleted() {
@@ -770,10 +782,10 @@ async function handleTaskAction(event) {
       await completeTask(taskId);
       break;
     case "restore":
-      restoreTask(taskId);
+      await restoreTask(taskId);
       break;
     case "delete":
-      deleteTask(taskId);
+      await deleteTask(taskId);
       break;
   }
 }
