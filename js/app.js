@@ -67,7 +67,7 @@ async function testProjectCreation() {
     console.error("Project test failed:", error);
   }
 }
-testProjectCreation();
+
 
 onAuthStateChanged(auth, user => {
   currentUser = user;
@@ -493,3 +493,4 @@ setInterval(() => {
     renderTasks();
   }, 1000);
 
+testProjectCreation();
