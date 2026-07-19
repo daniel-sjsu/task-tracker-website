@@ -496,3 +496,16 @@ setInterval(() => {
     renderDashboard();
     renderTasks();
   }, 1000);
+
+const navButtons = document.querySelectorAll(".nav-button");
+const appViews = document.querySelectorAll(".app-view");
+
+navButtons.forEach(button => {
+  button.addEventListener("click", () => {
+    navButtons.forEach(item => item.classList.remove("active"));
+    appViews.forEach(view => view.hidden = true);
+
+    button.classList.add("active");
+    document.getElementById(button.dataset.view).hidden = false;
+  });
+});

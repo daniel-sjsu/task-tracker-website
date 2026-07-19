@@ -1,66 +1,306 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Time Tracker Pro</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="css/style.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-<style>
-body{font-family:Arial,sans-serif;max-width:1200px;margin:auto;padding:20px;background:#f4f4f4}
-.card{background:white;padding:16px;border-radius:10px;margin:12px 0;box-shadow:0 2px 6px rgba(0,0,0,.1)}
-input,button{padding:8px;margin:4px}
-.task{border-left:6px solid #ccc}
-.running{border-left-color:green}
-.completed{opacity:0.6}
-.progress{height:18px;background:#ddd;border-radius:8px;overflow:hidden}
-.bar{height:100%;background:green}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
-.small{color:#666;font-size:.9em}
-</style>
-
 </head>
+
 <body>
+<header class="site-header">
+  <div class="header-content">
+    <div>
+      <h1>Time Tracker Pro</h1>
+      <p class="header-subtitle">Track projects, tasks, and long-term work history.</p>
+    </div>
 
-<h1>Time Tracker Pro</h1>
+    <div id="authSection" class="auth-section">
+      <span id="userStatus">Checking sign-in status...</span>
+      <button id="loginButton" class="primary-button" type="button" hidden>Sign in with Google</button>
+      <button id="logoutButton" class="secondary-button" type="button" hidden>Sign out</button>
+    </div>
+  </div>
+</header>
 
-<div id="authSection" class="card">
-  <span id="userStatus">Checking sign-in status...</span>
-  <button id="loginButton" type="button" hidden>Sign in with Google</button>
-  <button id="logoutButton" type="button" hidden>Sign out</button>
-</div>
 <div id="appContent" hidden>
-  <div class="card">
-  <input id="name" placeholder="Task name">
-  <input id="goal" type="number" step="0.25" placeholder="Target hours">
-  <button id="addTaskButton" type="button">Add Task</button>
-  <button id="exportCSVButton" type="button">Export Sessions CSV</button>
-  </div>
+  <nav class="main-nav" aria-label="Main navigation">
+    <div class="nav-content">
+      <button class="nav-button active" type="button" data-view="dashboardView">Dashboard</button>
+      <button class="nav-button" type="button" data-view="projectsView">Projects</button>
+      <button class="nav-button" type="button" data-view="historyView">History</button>
+      <button class="nav-button" type="button" data-view="reportsView">Reports</button>
+    </div>
+  </nav>
 
-  <div id="dashboard" class="grid"></div>
+  <main class="page-container">
+    <section id="dashboardView" class="app-view">
+      <div class="page-heading">
+        <div>
+          <h2>Dashboard</h2>
+          <p>Current activity and recent productivity.</p>
+        </div>
 
-  <div class="card">
-  <h3>Today's Distribution</h3>
-  <canvas id="pie"></canvas>
-  </div>
+        <button id="exportCSVButton" class="secondary-button" type="button">Export Sessions CSV</button>
+      </div>
 
-  <div class="card">
-  <h3>Weekly Productivity</h3>
-  <canvas id="weekly"></canvas>
-  </div>
+      <div id="dashboard" class="summary-grid"></div>
 
-  <h2>Active Tasks</h2>
-  <div id="tasks"></div>
+      <div class="dashboard-layout">
+        <section class="card current-work-card">
+          <div class="section-heading">
+            <div>
+              <h3>Add Task</h3>
+              <p>Create a task for the currently selected project.</p>
+            </div>
+          </div>
 
-  <div class="card">
-    <h2 id="completedTasksHeading" style="cursor:pointer; user-select:none;">Completed Tasks ▼</h2>
+          <div class="task-form">
+            <label>
+              <span>Task name</span>
+              <input id="name" type="text" placeholder="Enter task name">
+            </label>
 
-    <div id="completedTasks" style="display:none;"></div>
-  </div>
-  <div class="card">
-  <h2>Today's Session History</h2>
-  <div id="history"></div>
-  </div>
+            <label>
+              <span>Target hours</span>
+              <input id="goal" type="number" min="0" step="0.25" placeholder="Optional">
+            </label>
+
+            <button id="addTaskButton" class="primary-button" type="button">Add Task</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="section-heading">
+            <div>
+              <h3>Today by Task</h3>
+              <p>Distribution of completed work sessions.</p>
+            </div>
+          </div>
+
+          <div class="chart-container">
+            <canvas id="pie"></canvas>
+          </div>
+        </section>
+      </div>
+
+      <section class="card">
+        <div class="section-heading">
+          <div>
+            <h3>Weekly Productivity</h3>
+            <p>Total tracked work across the last seven days.</p>
+          </div>
+        </div>
+
+        <div class="chart-container chart-container-wide">
+          <canvas id="weekly"></canvas>
+        </div>
+      </section>
+
+      <section class="task-section">
+        <div class="section-heading">
+          <div>
+            <h2>Active Tasks</h2>
+            <p>Start, stop, complete, or manage your current tasks.</p>
+          </div>
+        </div>
+
+        <div id="tasks" class="task-list"></div>
+      </section>
+
+      <section class="card completed-section">
+        <h2 id="completedTasksHeading" class="collapsible-heading">Completed Tasks ▼</h2>
+        <div id="completedTasks" class="task-list" style="display:none;"></div>
+      </section>
+
+      <section class="card">
+        <div class="section-heading">
+          <div>
+            <h2>Today's Session History</h2>
+            <p>Completed timer sessions from today.</p>
+          </div>
+        </div>
+
+        <div id="history" class="session-list"></div>
+      </section>
+    </section>
+
+    <section id="projectsView" class="app-view" hidden>
+      <div class="page-heading">
+        <div>
+          <h2>Projects</h2>
+          <p>Organize related tasks and review tracked time by project.</p>
+        </div>
+
+        <button id="newProjectButton" class="primary-button" type="button">New Project</button>
+      </div>
+
+      <section class="card" id="projectFormCard" hidden>
+        <div class="section-heading">
+          <div>
+            <h3>Create Project</h3>
+            <p>Define a project and choose its display color.</p>
+          </div>
+        </div>
+
+        <div class="project-form">
+          <label>
+            <span>Project name</span>
+            <input id="projectNameInput" type="text" placeholder="Project name">
+          </label>
+
+          <label>
+            <span>Description</span>
+            <input id="projectDescriptionInput" type="text" placeholder="Optional description">
+          </label>
+
+          <label>
+            <span>Color</span>
+            <input id="projectColorInput" type="color" value="#4f83cc">
+          </label>
+
+          <label>
+            <span>Estimated hours</span>
+            <input id="projectHoursInput" type="number" min="0" step="0.25" placeholder="Optional">
+          </label>
+
+          <div class="form-actions">
+            <button id="saveProjectButton" class="primary-button" type="button">Create Project</button>
+            <button id="cancelProjectButton" class="secondary-button" type="button">Cancel</button>
+          </div>
+        </div>
+      </section>
+
+      <div id="projectsContainer" class="project-grid">
+        <section class="empty-state">
+          <h3>No projects loaded</h3>
+          <p>Your Firestore projects will appear here.</p>
+        </section>
+      </div>
+    </section>
+
+    <section id="historyView" class="app-view" hidden>
+      <div class="page-heading">
+        <div>
+          <h2>History</h2>
+          <p>Review and edit past work sessions.</p>
+        </div>
+
+        <button id="addManualSessionButton" class="primary-button" type="button">Add Session</button>
+      </div>
+
+      <section class="card filter-bar">
+        <label>
+          <span>Project</span>
+          <select id="historyProjectFilter">
+            <option value="">All projects</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Task</span>
+          <select id="historyTaskFilter">
+            <option value="">All tasks</option>
+          </select>
+        </label>
+
+        <label>
+          <span>From</span>
+          <input id="historyStartDate" type="date">
+        </label>
+
+        <label>
+          <span>To</span>
+          <input id="historyEndDate" type="date">
+        </label>
+      </section>
+
+      <div class="history-layout">
+        <section class="card calendar-card">
+          <div class="section-heading">
+            <div>
+              <h3>Calendar</h3>
+              <p>Daily totals and project activity.</p>
+            </div>
+          </div>
+
+          <div id="calendarContainer" class="calendar-placeholder">
+            Calendar view will be added here.
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="section-heading">
+            <div>
+              <h3>Sessions</h3>
+              <p>Select a session to edit its time or details.</p>
+            </div>
+          </div>
+
+          <div id="fullHistoryContainer" class="session-list">
+            No session history loaded.
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section id="reportsView" class="app-view" hidden>
+      <div class="page-heading">
+        <div>
+          <h2>Reports</h2>
+          <p>Analyze work totals across projects, tasks, and date ranges.</p>
+        </div>
+      </div>
+
+      <div class="summary-grid">
+        <section class="card metric-card">
+          <span class="metric-label">Selected Period</span>
+          <strong id="reportTotalHours">0.00 h</strong>
+        </section>
+
+        <section class="card metric-card">
+          <span class="metric-label">Most Active Project</span>
+          <strong id="reportTopProject">None</strong>
+        </section>
+
+        <section class="card metric-card">
+          <span class="metric-label">Average per Day</span>
+          <strong id="reportDailyAverage">0.00 h</strong>
+        </section>
+
+        <section class="card metric-card">
+          <span class="metric-label">Completed Tasks</span>
+          <strong id="reportCompletedTasks">0</strong>
+        </section>
+      </div>
+
+      <div class="dashboard-layout">
+        <section class="card">
+          <div class="section-heading">
+            <div>
+              <h3>Hours by Project</h3>
+              <p>Tracked time grouped by project.</p>
+            </div>
+          </div>
+
+          <div class="chart-placeholder">Project report chart will appear here.</div>
+        </section>
+
+        <section class="card">
+          <div class="section-heading">
+            <div>
+              <h3>Estimate vs. Actual</h3>
+              <p>Compare planned and tracked hours.</p>
+            </div>
+          </div>
+
+          <div class="chart-placeholder">Estimate comparison will appear here.</div>
+        </section>
+      </div>
+    </section>
+  </main>
 </div>
 
 <script type="module" src="js/app.js"></script>
