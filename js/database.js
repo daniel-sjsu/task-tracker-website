@@ -60,6 +60,23 @@ export async function restoreProject(userId, projectId) {
   await updateProject(userId, projectId, { archived: false });
 }
 
+export async function deleteProjectAndData(userId, projectId) {
+  if (!userId) throw new Error("A signed-in user is required.");
+  if (!projectId) throw new Error("A project ID is required.");
+
+  const tasksReference = collection(db, "users", userId, "tasks");
+  const sessionsReference = collection(db, "users", userId, "sessions");
+
+  const tasksSnapshot = await getDocs(query(tasksReference, where("projectId", "==", projectId)));
+  const sessionsSnapshot = await getDocs(query(sessionsReference, where("projectId", "==", projectId)));
+
+  await Promise.all([
+    ...tasksSnapshot.docs.map(taskDocument => deleteDoc(taskDocument.ref)),
+    ...sessionsSnapshot.docs.map(sessionDocument => deleteDoc(sessionDocument.ref))
+  ]);
+
+  await deleteDoc(doc(db, "users", userId, "projects", projectId));
+}
 
 export async function createTask(userId, projectId, taskData) {
   if (!userId) throw new Error("A signed-in user is required.");

@@ -1,5 +1,5 @@
 import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from "./firebase.js";
-import {  createProject, getProjects, updateProject as updateProjectInFirestore, archiveProject as archiveProjectInFirestore, restoreProject as restoreProjectInFirestore,
+import {  createProject, getProjects, deleteProjectAndData, updateProject as updateProjectInFirestore, archiveProject as archiveProjectInFirestore, restoreProject as restoreProjectInFirestore,
           createTask, getTasks, completeTask as completeTaskInFirestore, reopenTask, deleteTask as deleteTaskFromFirestore, deleteSessionsByTask,
           getSessions, createSession, 
           saveTimerState, listenToTimerState } from "./database.js";
@@ -172,6 +172,9 @@ async function handleProjectAction(event) {
     case "restore":
       await restoreProject(projectId);
       break;
+    case "delete":
+      await deleteProject(projectId);
+      break;
   }
 }
 async function saveProject() {
@@ -226,7 +229,51 @@ function renderProjects() {
     `;
     return;
   }
-
+  async function deleteProject(projectId) {
+    if (!currentUser) return;
+  
+    const project = projects.find(project => project.id === projectId);
+    if (!project) return;
+  
+    if (project.name.trim().toLowerCase() === "general") {
+      alert('The "General" project cannot be deleted because it is the default project.');
+      return;
+    }
+  
+    const runningTask = tasks.find(task => task.id === state.runningTaskId);
+  
+    if (runningTask?.projectId === projectId) {
+      alert("Stop the running task before deleting this project.");
+      return;
+    }
+  
+    const projectTaskCount = tasks.filter(task => task.projectId === projectId).length;
+    const projectSessionCount = sessions.filter(session => session.projectId === projectId).length;
+  
+    const confirmed = window.confirm(
+      `Permanently delete "${project.name}"?\n\n` +
+      `This will also delete ${projectTaskCount} task${projectTaskCount === 1 ? "" : "s"} and ` +
+      `${projectSessionCount} tracked session${projectSessionCount === 1 ? "" : "s"}.\n\n` +
+      `This cannot be undone.`
+    );
+  
+    if (!confirmed) return;
+  
+    try {
+      await deleteProjectAndData(currentUser.uid, projectId);
+  
+      projects = await getProjects(currentUser.uid);
+      tasks = await getTasks(currentUser.uid);
+      sessions = normalizeSessions(await getSessions(currentUser.uid));
+  
+      renderProjects();
+      renderProjectOptions();
+      render();
+    } catch (error) {
+      console.error("Failed to delete project:", error);
+      alert("The project could not be deleted.");
+    }
+  }
   const createProjectCard = project => {
     const projectTasks = tasks.filter(task => task.projectId === project.id && !task.archived);
     const completedCount = projectTasks.filter(task => task.completed).length;
@@ -245,10 +292,12 @@ function renderProjects() {
           <span>${estimate}</span>
         </div>
         <div class="project-actions">
-          ${project.archived
-            ? `<button type="button" data-project-action="restore" data-project-id="${project.id}">Restore</button>`
-            : `<button type="button" data-project-action="edit" data-project-id="${project.id}">Edit</button>
-               <button type="button" data-project-action="archive" data-project-id="${project.id}">Archive</button>`}
+        ${project.archived
+          ? `<button type="button" data-project-action="restore" data-project-id="${project.id}">Restore</button>
+             <button type="button" data-project-action="delete" data-project-id="${project.id}">Delete</button>`
+          : `<button type="button" data-project-action="edit" data-project-id="${project.id}">Edit</button>
+             <button type="button" data-project-action="archive" data-project-id="${project.id}">Archive</button>
+             <button type="button" data-project-action="delete" data-project-id="${project.id}">Delete</button>`}
         </div>
       </div>
     `;
@@ -849,6 +898,7 @@ async function handleTaskAction(event) {
     case "delete":
       await deleteTask(taskId);
       break;
+    
   }
 }
 
