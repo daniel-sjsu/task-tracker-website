@@ -64,6 +64,11 @@ function formatDateTimeLocal(date) {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
+function isTaskVisible(task) {
+  const project = projects.find(project => project.id === task.projectId);
+  return !task.archived && project && !project.archived;
+}
+
 function renderManualSessionProjectOptions() {
   const activeProjects = projects.filter(project => !project.archived);
 
@@ -1153,13 +1158,13 @@ function renderTasks() {
   activeTasksContainer.innerHTML = "";
   completedTasksContainer.innerHTML = "";
 
-  const activeTasks = tasks.filter(task => !task.completed && !task.archived);
+  const activeTasks = tasks.filter(task => !task.completed && isTaskVisible(task));
 
   activeTasks.forEach(task => {
     activeTasksContainer.appendChild(createTaskElement(task));
   });
 
-  const completedTasks = tasks.filter(task => task.completed && !task.archived);
+  const completedTasks = tasks.filter(task => task.completed && isTaskVisible(task));
 
   if (completedTasks.length === 0) return;
 
