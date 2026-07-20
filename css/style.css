@@ -608,6 +608,27 @@
   #reportsView .chart-container {
     height: 340px;
   }
+  .task-tree {
+    margin-bottom: 14px;
+  }
+  
+  .subtask-list {
+    margin: 8px 0 0 28px;
+    padding-left: 16px;
+    border-left: 2px solid var(--border);
+  }
+  
+  .subtask-list .task {
+    margin-bottom: 8px;
+  }
+  
+  .task.subtask {
+    padding: 14px;
+  }
+  
+  .task.subtask h3 {
+    font-size: 1rem;
+  }
   @media (max-width: 700px) {
     .calendar-day {
       min-height: 56px;

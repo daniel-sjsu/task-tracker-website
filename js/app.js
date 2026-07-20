@@ -76,6 +76,7 @@ const reportDailyAverage = document.getElementById("reportDailyAverage");
 const reportCompletedTasks = document.getElementById("reportCompletedTasks");
 const reportProjectChartCanvas = document.getElementById("reportProjectChart");
 const reportEstimateChartCanvas = document.getElementById("reportEstimateChart");
+const taskParentInput = document.getElementById("taskParentInput");
 
 function formatDateTimeLocal(date) {
   const year = date.getFullYear();
@@ -157,6 +158,27 @@ function getReportProjectTotals(reportSessions) {
   });
 
   return Object.values(totals).sort((a, b) => b.seconds - a.seconds);
+}
+
+function renderTaskParentOptions(selectedParentId = "") {
+  const projectId = taskProjectInput.value;
+
+  const possibleParents = tasks.filter(task => {
+    if (task.projectId !== projectId) return false;
+    if (task.parentTaskId) return false;
+    if (task.archived) return false;
+    if (task.id === editingTaskId) return false;
+    return true;
+  });
+
+  taskParentInput.innerHTML = `
+    <option value="">None — top-level task</option>
+    ${possibleParents.map(task => `<option value="${task.id}">${escapeHTML(task.name)}</option>`).join("")}
+  `;
+
+  if (possibleParents.some(task => task.id === selectedParentId)) {
+    taskParentInput.value = selectedParentId;
+  }
 }
 
 function getReportDayCount(reportSessions) {
@@ -407,6 +429,7 @@ function renderProjectOptions() {
   if (generalProject) {
     taskProjectInput.value = generalProject.id;
   }
+  renderTaskParentOptions();
 }
 
 function openProjectForm(project = null) {
@@ -1017,6 +1040,7 @@ function openTaskEditor(taskId) {
 
   editingTaskId = task.id;
   taskProjectInput.value = task.projectId;
+  renderTaskParentOptions(task.parentTaskId || "");
   nameInput.value = task.name;
   goalInput.value = task.targetHours ?? "";
   addTaskButton.textContent = "Save Changes";
@@ -1071,7 +1095,10 @@ function resetTaskForm() {
   addTaskButton.textContent = "Add Task";
 
   const generalProject = projects.find(project => !project.archived && project.name.trim().toLowerCase() === "general");
+
   if (generalProject) taskProjectInput.value = generalProject.id;
+
+  renderTaskParentOptions();
 }
 
 async function addTask() {
@@ -1081,6 +1108,7 @@ async function addTask() {
   const generalProject = projects.find(project => !project.archived && project.name.trim().toLowerCase() === "general");
   const projectId = taskProjectInput.value || generalProject?.id;
   const targetHours = goalInput.value === "" ? null : Number(goalInput.value);
+  const parentTaskId = taskParentInput.value || null;
 
   if (!name) {
     alert("Enter a task name.");
@@ -1096,7 +1124,12 @@ async function addTask() {
     alert("Enter a valid target time.");
     return;
   }
+  const parentTask = parentTaskId ? tasks.find(task => task.id === parentTaskId) : null;
 
+  if (parentTaskId && (!parentTask || parentTask.projectId !== projectId)) {
+    alert("Select a valid parent task.");
+    return;
+  }
   try {
     addTaskButton.disabled = true;
 
@@ -1108,9 +1141,17 @@ async function addTask() {
         return;
       }
     
+      const existingSubtasks = tasks.filter(task => task.parentTaskId === editingTaskId);
+    
+      if (parentTaskId && existingSubtasks.length > 0) {
+        alert("A task with subtasks cannot itself be converted into a subtask.");
+        return;
+      }
+    
       await updateTaskInFirestore(currentUser.uid, editingTaskId, {
         name,
         projectId,
+        parentTaskId,
         targetHours
       });
     } else {
@@ -1118,12 +1159,13 @@ async function addTask() {
         name,
         description: "",
         targetHours,
-        parentTaskId: null
+        parentTaskId
       });
     }
 
     tasks = await getTasks(currentUser.uid);
     resetTaskForm();
+    renderTaskParentOptions();
     renderProjects();
     renderManualSessionProjectOptions();
     render();
@@ -1511,7 +1553,7 @@ function renderWeekly() {
   });
 }
 
-function createTaskElement(task) {
+function createTaskElement(task, isSubtask = false) {
   const project = projects.find(project => project.id === task.projectId);
   const projectLabel = project ? `<div class="task-project"><span style="background:${project.color}"></span>${escapeHTML(project.name)}</div>` : "";
 
@@ -1526,6 +1568,7 @@ function createTaskElement(task) {
   taskElement.className = [
     "card",
     "task",
+    isSubtask ? "subtask" : "",
     state.runningTaskId === task.id ? "running" : "",
     task.completed ? "completed" : ""
   ].filter(Boolean).join(" ");
@@ -1573,53 +1616,73 @@ function createTaskElement(task) {
   return taskElement;
 }
 
+function appendTaskTree(container, parentTask, visibleTasks) {
+  const parentWrapper = document.createElement("div");
+  parentWrapper.className = "task-tree";
 
+  parentWrapper.appendChild(createTaskElement(parentTask));
+
+  const subtasks = visibleTasks
+    .filter(task => task.parentTaskId === parentTask.id)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  if (subtasks.length > 0) {
+    const subtaskContainer = document.createElement("div");
+    subtaskContainer.className = "subtask-list";
+
+    subtasks.forEach(subtask => {
+      subtaskContainer.appendChild(createTaskElement(subtask, true));
+    });
+
+    parentWrapper.appendChild(subtaskContainer);
+  }
+
+  container.appendChild(parentWrapper);
+}
 function renderTasks() {
   activeTasksContainer.innerHTML = "";
   completedTasksContainer.innerHTML = "";
 
-  const activeTasks = tasks.filter(task => !task.completed && isTaskVisible(task));
+  const visibleTasks = tasks.filter(task => isTaskVisible(task));
+  const activeTasks = visibleTasks.filter(task => !task.completed);
+  const activeParents = activeTasks.filter(task => !task.parentTaskId);
 
-  activeTasks.forEach(task => {
-    activeTasksContainer.appendChild(createTaskElement(task));
+  activeParents.forEach(parentTask => {
+    appendTaskTree(activeTasksContainer, parentTask, activeTasks);
   });
 
-  const completedTasks = tasks.filter(task => task.completed && isTaskVisible(task));
-
+  const completedTasks = visibleTasks.filter(task => task.completed);
   if (completedTasks.length === 0) return;
 
-  const projectGroups = completedTasks.reduce((groups, task) => {
+  const completedByProject = completedTasks.reduce((groups, task) => {
     const projectId = task.projectId || "unknown";
-
     if (!groups[projectId]) groups[projectId] = [];
-
     groups[projectId].push(task);
     return groups;
   }, {});
 
-  const sortedProjectGroups = Object.entries(projectGroups).sort(([, tasksA], [, tasksB]) => {
+  const sortedProjectGroups = Object.entries(completedByProject).sort(([, tasksA], [, tasksB]) => {
     const newestA = Math.max(...tasksA.map(task => getCompletedTimestamp(task)));
     const newestB = Math.max(...tasksB.map(task => getCompletedTimestamp(task)));
-
     return newestB - newestA;
   });
 
   sortedProjectGroups.forEach(([projectId, projectTasks]) => {
     const project = projects.find(project => project.id === projectId);
     const group = document.createElement("div");
+    const completedParents = projectTasks.filter(task => !task.parentTaskId);
 
     group.className = "completed-project-group";
-
     group.innerHTML = `
       <h3 class="completed-project-heading">
         ${project ? `<span style="background:${project.color}"></span>${escapeHTML(project.name)}` : "Unknown project"}
       </h3>
     `;
 
-    projectTasks
+    completedParents
       .sort((a, b) => getCompletedTimestamp(b) - getCompletedTimestamp(a))
-      .forEach(task => {
-        group.appendChild(createTaskElement(task));
+      .forEach(parentTask => {
+        appendTaskTree(group, parentTask, projectTasks);
       });
 
     completedTasksContainer.appendChild(group);
@@ -1781,3 +1844,5 @@ reportAllTimeButton.addEventListener("click", () => {
   reportEndDate.value = "";
   renderReports();
 });
+
+taskProjectInput.addEventListener("change", () => renderTaskParentOptions());
