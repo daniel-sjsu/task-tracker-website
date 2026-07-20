@@ -434,7 +434,8 @@ function renderProjects() {
     const visibleTasks = projectTasks.filter(task => !task.archived);
     const archivedTasks = projectTasks.filter(task => task.archived);
     const completedCount = visibleTasks.filter(task => task.completed).length;
-    const estimate = project.estimatedHours !== null && project.estimatedHours !== undefined ? `${Number(project.estimatedHours).toFixed(2)} h estimated` : "No estimate";
+    const estimatedHours = getProjectEstimatedHours(project.id);
+    const estimate = estimatedHours > 0 ? `${estimatedHours.toFixed(2)} h estimated from tasks` : "No task estimates";
 
     return `
       <div class="project-card${project.archived ? " archived" : ""}">
@@ -551,6 +552,44 @@ function renderTaskParentOptions(selectedParentId = "") {
   }
 }
 
+function getSubtasks(parentTaskId) {
+  return tasks.filter(task => task.parentTaskId === parentTaskId && !task.archived);
+}
+
+function taskHasSubtasks(taskId) {
+  return getSubtasks(taskId).length > 0;
+}
+
+function getTaskTargetHours(task) {
+  const subtasks = getSubtasks(task.id);
+  if (subtasks.length === 0) return Number(task.targetHours || 0);
+  return subtasks.reduce((total, subtask) => total + Number(subtask.targetHours || 0), 0);
+}
+
+function getTaskDisplaySeconds(task) {
+  const ownSeconds = getCurrentSeconds(task);
+  const subtasks = getSubtasks(task.id);
+  if (subtasks.length === 0) return ownSeconds;
+  return ownSeconds + subtasks.reduce((total, subtask) => total + getCurrentSeconds(subtask), 0);
+}
+
+function getProjectEstimatedHours(projectId) {
+  return tasks
+    .filter(task => task.projectId === projectId && !task.archived)
+    .filter(task => task.parentTaskId || !taskHasSubtasks(task.id))
+    .reduce((total, task) => total + Number(task.targetHours || 0), 0);
+}
+
+function getRemainingPlannedHours() {
+  return tasks
+    .filter(task => !task.completed && !task.archived)
+    .filter(task => task.parentTaskId || !taskHasSubtasks(task.id))
+    .reduce((total, task) => {
+      const remainingSeconds = Math.max(0, Number(task.targetHours || 0) * 3600 - getCurrentSeconds(task));
+      return total + remainingSeconds / 3600;
+    }, 0);
+}
+
 function openTaskEditor(taskId) {
   const task = tasks.find(task => task.id === taskId);
   if (!task) return;
@@ -559,7 +598,12 @@ function openTaskEditor(taskId) {
   taskProjectInput.value = task.projectId;
   renderTaskParentOptions(task.parentTaskId || "");
   nameInput.value = task.name;
-  goalInput.value = task.targetHours ?? "";
+
+  const hasSubtasks = taskHasSubtasks(task.id);
+  goalInput.value = hasSubtasks ? getTaskTargetHours(task) : task.targetHours ?? "";
+  goalInput.disabled = hasSubtasks;
+  goalInput.title = hasSubtasks ? "This target is calculated from the task's subtasks." : "";
+
   addTaskButton.textContent = "Save Changes";
   nameInput.focus();
   nameInput.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -569,10 +613,11 @@ function resetTaskForm() {
   editingTaskId = null;
   nameInput.value = "";
   goalInput.value = "";
+  goalInput.disabled = false;
+  goalInput.title = "";
   addTaskButton.textContent = "Add Task";
 
   const generalProject = projects.find(project => !project.archived && project.name.trim().toLowerCase() === "general");
-
   if (generalProject) taskProjectInput.value = generalProject.id;
 
   renderTaskParentOptions();
@@ -659,6 +704,12 @@ async function completeTask(id) {
 
   const task = tasks.find(task => task.id === id);
   if (!task) return;
+
+  const incompleteSubtasks = getSubtasks(id).filter(subtask => !subtask.completed);
+  if (incompleteSubtasks.length > 0) {
+    alert(`Complete the ${incompleteSubtasks.length} unfinished subtask${incompleteSubtasks.length === 1 ? "" : "s"} before completing this parent task.`);
+    return;
+  }
 
   if (state.runningTaskId === id) {
     await stopTask();
@@ -771,10 +822,17 @@ async function deleteTask(id) {
 
 function createTaskElement(task, isSubtask = false) {
   const project = projects.find(project => project.id === task.projectId);
-  const projectLabel = project ? `<div class="task-project"><span style="background:${project.color}"></span>${escapeHTML(project.name)}</div>` : "";
+  const parentTask = task.parentTaskId ? tasks.find(parent => parent.id === task.parentTaskId) : null;
+  const relationshipLabel = isSubtask && parentTask
+    ? `<div class="task-parent">Parent: ${escapeHTML(parentTask.name)}</div>`
+    : project
+      ? `<div class="task-project"><span style="background:${project.color}"></span>${escapeHTML(project.name)}</div>`
+      : "";
 
-  const seconds = getCurrentSeconds(task);
-  const targetHours = Number(task.targetHours);
+  const subtasks = getSubtasks(task.id);
+  const hasSubtasks = subtasks.length > 0;
+  const seconds = getTaskDisplaySeconds(task);
+  const targetHours = getTaskTargetHours(task);
   const hasTarget = Number.isFinite(targetHours) && targetHours > 0;
   const goalSeconds = hasTarget ? targetHours * 3600 : 0;
   const percentage = hasTarget ? seconds / goalSeconds * 100 : 0;
@@ -785,11 +843,12 @@ function createTaskElement(task, isSubtask = false) {
     "card",
     "task",
     isSubtask ? "subtask" : "",
+    hasSubtasks ? "task-parent-summary" : "",
     state.runningTaskId === task.id ? "running" : "",
     task.completed ? "completed" : ""
   ].filter(Boolean).join(" ");
 
-  const timerButton = task.completed
+  const timerButton = task.completed || hasSubtasks
     ? ""
     : state.runningTaskId === task.id
       ? `<button type="button" data-action="stop">Stop</button>`
@@ -800,8 +859,12 @@ function createTaskElement(task, isSubtask = false) {
     : `<button type="button" data-action="complete" data-task-id="${task.id}">Complete</button>`;
 
   const targetDisplay = hasTarget
-    ? `<div>Target: ${targetHours.toFixed(2)} h</div>`
+    ? `<div>Target: ${targetHours.toFixed(2)} h${hasSubtasks ? ` from ${subtasks.length} subtask${subtasks.length === 1 ? "" : "s"}` : ""}</div>`
     : `<div>Target: None</div>`;
+
+  const trackedDisplay = hasSubtasks
+    ? `<div>Tracked: ${formatDuration(seconds)} including subtasks</div>`
+    : `<div>Tracked: ${formatDuration(seconds)}</div>`;
 
   const progressDisplay = hasTarget
     ? `<div>${differenceHours >= 0 ? `Overrun: +${differenceHours.toFixed(2)} h` : `Remaining: ${Math.abs(differenceHours).toFixed(2)} h`}</div>
@@ -809,16 +872,18 @@ function createTaskElement(task, isSubtask = false) {
        <div class="progress"><div class="bar" style="width:${Math.min(Math.max(percentage, 0), 100)}%"></div></div>`
     : `<div>0.0%</div>
        <div class="progress"><div class="bar" style="width:0%"></div></div>`;
+
   const archiveButton = task.archived
     ? `<button type="button" data-action="unarchive" data-task-id="${task.id}">Restore from Archive</button>`
     : `<button type="button" data-action="archive" data-task-id="${task.id}">Archive</button>`;
 
   taskElement.innerHTML = `
-    ${projectLabel}
+    ${relationshipLabel}
     <h3>${escapeHTML(task.name)}</h3>
     ${targetDisplay}
-    <div>Tracked: ${formatDuration(seconds)}</div>
+    ${trackedDisplay}
     ${progressDisplay}
+    ${hasSubtasks ? `<div class="small">Use the subtask timers below.</div>` : ""}
     ${task.completedAt ? `<div class="small">Completed: ${task.completedAt.toDate ? task.completedAt.toDate().toLocaleDateString() : new Date(task.completedAt).toLocaleDateString()}</div>` : ""}
     <br>
     ${timerButton}
@@ -970,6 +1035,11 @@ function getCurrentSeconds(task) {
 async function startTask(id) {
   const task = tasks.find(task => task.id === id);
   if (!task || task.completed || !currentUser) return;
+
+  if (taskHasSubtasks(task.id)) {
+    alert("Start one of this task's subtasks instead of timing the parent task.");
+    return;
+  }
 
   if (state.runningTaskId !== null) {
     await stopTask();
@@ -1472,7 +1542,7 @@ function renderDashboard() {
   const todayHours = today.reduce((sum, session) => sum + session.durationSeconds, 0) / 3600;
   const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const weekHours = sessions.filter(session => session.start >= sevenDaysAgo).reduce((sum, session) => sum + session.durationSeconds, 0) / 3600;
-  const goalHours = tasks.filter(task => !task.completed).reduce((sum, task) => sum + Number(task.targetHours || 0), 0);
+  const remainingHours = getRemainingPlannedHours();
   const completedCount = tasks.filter(task => task.completed).length;
   const completionRate = tasks.length > 0 ? completedCount / tasks.length * 100 : 0;
   const runningTask = tasks.find(task => task.id === state.runningTaskId);
@@ -1480,7 +1550,7 @@ function renderDashboard() {
   dashboardContainer.innerHTML = `
     <div class="card"><b>Today</b><br>${todayHours.toFixed(2)} h</div>
     <div class="card"><b>This Week</b><br>${weekHours.toFixed(2)} h</div>
-    <div class="card"><b>Remaining Planned</b><br>${goalHours.toFixed(2)} h</div>
+    <div class="card"><b>Remaining Planned</b><br>${remainingHours.toFixed(2)} h</div>
     <div class="card"><b>Completed Tasks</b><br>${completedCount}/${tasks.length} (${completionRate.toFixed(1)}%)</div>
     <div class="card"><b>Running</b><br>${runningTask ? escapeHTML(runningTask.name) : "None"}</div>
   `;
@@ -1697,10 +1767,9 @@ function renderReportProjectChart(projectTotals) {
 }
 
 function renderReportEstimateChart(projectTotals) {
-  const estimatedProjects = projects.filter(project => {
-    const estimate = Number(project.estimatedHours);
-    return Number.isFinite(estimate) && estimate > 0;
-  });
+  const estimatedProjects = projects
+    .map(project => ({ ...project, derivedEstimatedHours: getProjectEstimatedHours(project.id) }))
+    .filter(project => project.derivedEstimatedHours > 0);
 
   if (reportEstimateChart) reportEstimateChart.destroy();
 
@@ -1711,7 +1780,7 @@ function renderReportEstimateChart(projectTotals) {
       datasets: [
         {
           label: "Estimated Hours",
-          data: estimatedProjects.map(project => Number(project.estimatedHours))
+          data: estimatedProjects.map(project => project.derivedEstimatedHours)
         },
         {
           label: "Tracked Hours",
