@@ -629,6 +629,53 @@
   .task.subtask h3 {
     font-size: 1rem;
   }
+  .active-project-group {
+    margin-bottom: 18px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    overflow: hidden;
+  }
+  
+  .active-project-summary {
+    padding: 16px 18px;
+    cursor: pointer;
+    background: var(--surface-secondary);
+    list-style-position: inside;
+  }
+  
+  .active-project-summary:hover {
+    background: var(--surface-hover);
+  }
+  
+  .active-project-heading {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    vertical-align: middle;
+  }
+  
+  .active-project-heading .project-color {
+    width: 12px;
+    height: 36px;
+    border-radius: 999px;
+    flex-shrink: 0;
+  }
+  
+  .active-project-meta {
+    margin-top: 3px;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-weight: 400;
+  }
+  
+  .active-project-task-list {
+    padding: 16px;
+  }
+  
+  .active-project-task-list .task-tree:last-child {
+    margin-bottom: 0;
+  }
   @media (max-width: 700px) {
     .calendar-day {
       min-height: 56px;

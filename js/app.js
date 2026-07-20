@@ -29,6 +29,7 @@ let pieChart = null;
 let weeklyChart = null;
 let reportProjectChart = null;
 let reportEstimateChart = null;
+const collapsedActiveProjects = new Set();
 
 // ============================================================================
 // DOM REFERENCES
@@ -926,10 +927,62 @@ function renderTasks() {
 
   const visibleTasks = tasks.filter(task => isTaskVisible(task));
   const activeTasks = visibleTasks.filter(task => !task.completed);
-  const activeParents = activeTasks.filter(task => !task.parentTaskId);
 
-  activeParents.forEach(parentTask => {
-    appendTaskTree(activeTasksContainer, parentTask, activeTasks);
+  const activeTasksByProject = activeTasks.reduce((groups, task) => {
+    const projectId = task.projectId || "unknown";
+
+    if (!groups[projectId]) groups[projectId] = [];
+    groups[projectId].push(task);
+
+    return groups;
+  }, {});
+
+  const sortedActiveProjectGroups = Object.entries(activeTasksByProject).sort(([projectIdA], [projectIdB]) => {
+    const projectA = projects.find(project => project.id === projectIdA);
+    const projectB = projects.find(project => project.id === projectIdB);
+
+    return (projectA?.name || "").localeCompare(projectB?.name || "");
+  });
+
+  sortedActiveProjectGroups.forEach(([projectId, projectTasks]) => {
+    const project = projects.find(project => project.id === projectId);
+    const activeParents = projectTasks.filter(task => !task.parentTaskId);
+    const totalSeconds = projectTasks.reduce((total, task) => total + getTaskSessionSeconds(task.id), 0);
+    const estimatedHours = getProjectEstimatedHours(projectId);
+
+    const projectGroup = document.createElement("details");
+    projectGroup.className = "active-project-group";
+    projectGroup.open = !collapsedActiveProjects.has(projectId);
+
+    const summary = document.createElement("summary");
+    summary.className = "active-project-summary";
+    summary.innerHTML = `
+      <div class="active-project-heading">
+        <span class="project-color" style="background:${project?.color || "#777777"}"></span>
+
+        <div>
+          <strong>${escapeHTML(project?.name || "Unknown project")}</strong>
+          <div class="active-project-meta">
+            ${activeParents.length} top-level task${activeParents.length === 1 ? "" : "s"} ·
+            ${formatDuration(totalSeconds)} tracked ·
+            ${estimatedHours.toFixed(2)} h estimated
+          </div>
+        </div>
+      </div>
+    `;
+
+    const projectTaskContainer = document.createElement("div");
+    projectTaskContainer.className = "active-project-task-list";
+
+    activeParents
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .forEach(parentTask => {
+        appendTaskTree(projectTaskContainer, parentTask, projectTasks);
+      });
+
+    projectGroup.appendChild(summary);
+    projectGroup.appendChild(projectTaskContainer);
+    activeTasksContainer.appendChild(projectGroup);
   });
 
   const completedTasks = visibleTasks.filter(task => task.completed);
@@ -1921,6 +1974,13 @@ projectsContainer.addEventListener("click", handleProjectAction);
 projectsContainer.addEventListener("click", handleTaskAction);
 projectNameInput.addEventListener("keydown", event => {
   if (event.key === "Enter") saveProject();
+});
+projectGroup.addEventListener("toggle", () => {
+  if (projectGroup.open) {
+    collapsedActiveProjects.delete(projectId);
+  } else {
+    collapsedActiveProjects.add(projectId);
+  }
 });
 
 // Tasks
