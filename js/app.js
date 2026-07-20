@@ -871,8 +871,7 @@ function createTaskElement(task, isSubtask = false) {
     ? `<div>${differenceHours >= 0 ? `Overrun: +${differenceHours.toFixed(2)} h` : `Remaining: ${Math.abs(differenceHours).toFixed(2)} h`}</div>
        <div>${percentage.toFixed(1)}%</div>
        <div class="progress"><div class="bar" style="width:${Math.min(Math.max(percentage, 0), 100)}%"></div></div>`
-    : `<div>0.0%</div>
-       <div class="progress"><div class="bar" style="width:0%"></div></div>`;
+    : "";
 
   const archiveButton = task.archived
     ? `<button type="button" data-action="unarchive" data-task-id="${task.id}">Restore from Archive</button>`
