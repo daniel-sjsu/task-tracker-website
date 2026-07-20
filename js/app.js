@@ -1280,6 +1280,8 @@ function editSession(sessionId) {
 
   editingSessionId = session.id;
 
+  showAppView("historyView");
+
   renderManualSessionProjectOptions();
   manualSessionProjectInput.value = session.projectId;
   renderManualSessionTaskOptions();
@@ -1291,7 +1293,10 @@ function editSession(sessionId) {
 
   saveManualSessionButton.textContent = "Save Changes";
   manualSessionForm.hidden = false;
-  manualSessionForm.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  requestAnimationFrame(() => {
+    manualSessionForm.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 }
 
 async function deleteSession(sessionId) {
@@ -1963,13 +1968,16 @@ loginButton.addEventListener("click", loginWithGoogle);
 logoutButton.addEventListener("click", logoutUser);
 
 // Navigation
-navButtons.forEach(button => {
-  button.addEventListener("click", () => {
-    navButtons.forEach(item => item.classList.remove("active"));
-    appViews.forEach(view => view.hidden = true);
-    button.classList.add("active");
-    document.getElementById(button.dataset.view).hidden = false;
+
+function showAppView(viewId) {
+  navButtons.forEach(button => button.classList.toggle("active", button.dataset.view === viewId));
+  appViews.forEach(view => {
+    view.hidden = view.id !== viewId;
   });
+}
+
+navButtons.forEach(button => {
+  button.addEventListener("click", () => showAppView(button.dataset.view));
 });
 
 // Projects
