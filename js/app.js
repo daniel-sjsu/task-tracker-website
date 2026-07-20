@@ -23,6 +23,9 @@ let unsubscribeTimerState = null;
 let editingProjectId = null;
 let editingSessionId = null;
 let editingTaskId = null;
+let reportProjectChart = null;
+let reportEstimateChart = null;
+
 
 const nameInput = document.getElementById("name");
 const goalInput = document.getElementById("goal");
@@ -63,6 +66,16 @@ const historyStartDate = document.getElementById("historyStartDate");
 const historyEndDate = document.getElementById("historyEndDate");
 const fullHistoryContainer = document.getElementById("fullHistoryContainer");
 const calendarContainer = document.getElementById("calendarContainer");
+const reportStartDate = document.getElementById("reportStartDate");
+const reportEndDate = document.getElementById("reportEndDate");
+const reportCurrentMonthButton = document.getElementById("reportCurrentMonthButton");
+const reportAllTimeButton = document.getElementById("reportAllTimeButton");
+const reportTotalHours = document.getElementById("reportTotalHours");
+const reportTopProject = document.getElementById("reportTopProject");
+const reportDailyAverage = document.getElementById("reportDailyAverage");
+const reportCompletedTasks = document.getElementById("reportCompletedTasks");
+const reportProjectChartCanvas = document.getElementById("reportProjectChart");
+const reportEstimateChartCanvas = document.getElementById("reportEstimateChart");
 
 function formatDateTimeLocal(date) {
   const year = date.getFullYear();
@@ -80,6 +93,183 @@ function getLocalDateKey(date) {
   return `${year}-${month}-${day}`;
 }
 
+function setReportCurrentMonth() {
+  const now = new Date();
+  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+  reportStartDate.value = getLocalDateKey(firstDay);
+  reportEndDate.value = getLocalDateKey(lastDay);
+}
+
+function getReportSessions() {
+  const startTime = getLocalDayStart(reportStartDate.value);
+  const endTime = getLocalDayEnd(reportEndDate.value);
+
+  return sessions.filter(session => {
+    if (startTime !== null && session.start < startTime) return false;
+    if (endTime !== null && session.start > endTime) return false;
+    return true;
+  });
+}
+
+function getTimestampMillis(value) {
+  if (value?.toMillis) return value.toMillis();
+
+  const milliseconds = Number(value);
+  return Number.isFinite(milliseconds) ? milliseconds : null;
+}
+
+function getCompletedTasksForReport() {
+  const startTime = getLocalDayStart(reportStartDate.value);
+  const endTime = getLocalDayEnd(reportEndDate.value);
+
+  return tasks.filter(task => {
+    if (!task.completed || !task.completedAt) return false;
+
+    const completedTime = getTimestampMillis(task.completedAt);
+    if (completedTime === null) return false;
+    if (startTime !== null && completedTime < startTime) return false;
+    if (endTime !== null && completedTime > endTime) return false;
+
+    return true;
+  });
+}
+
+function getReportProjectTotals(reportSessions) {
+  const totals = {};
+
+  reportSessions.forEach(session => {
+    const projectId = session.projectId || "unknown";
+
+    if (!totals[projectId]) {
+      const project = projects.find(project => project.id === projectId);
+
+      totals[projectId] = {
+        projectId,
+        name: project?.name || session.projectName || "Unknown project",
+        color: project?.color || "#777777",
+        seconds: 0
+      };
+    }
+
+    totals[projectId].seconds += Number(session.durationSeconds || 0);
+  });
+
+  return Object.values(totals).sort((a, b) => b.seconds - a.seconds);
+}
+
+function getReportDayCount(reportSessions) {
+  const startTime = getLocalDayStart(reportStartDate.value);
+  const endTime = getLocalDayEnd(reportEndDate.value);
+
+  if (startTime !== null && endTime !== null) {
+    return Math.max(1, Math.round((endTime - startTime) / 86400000));
+  }
+
+  if (reportSessions.length === 0) return 1;
+
+  const earliest = Math.min(...reportSessions.map(session => session.start));
+  const latest = Math.max(...reportSessions.map(session => session.start));
+
+  return Math.max(1, Math.floor((latest - earliest) / 86400000) + 1);
+}
+function renderReportSummary(reportSessions, projectTotals) {
+  const totalSeconds = reportSessions.reduce((sum, session) => sum + Number(session.durationSeconds || 0), 0);
+  const totalHours = totalSeconds / 3600;
+  const dayCount = getReportDayCount(reportSessions);
+  const averageHours = totalHours / dayCount;
+  const topProject = projectTotals[0];
+  const completedCount = getCompletedTasksForReport().length;
+
+  reportTotalHours.textContent = `${totalHours.toFixed(2)} h`;
+  reportTopProject.textContent = topProject?.name || "None";
+  reportDailyAverage.textContent = `${averageHours.toFixed(2)} h`;
+  reportCompletedTasks.textContent = completedCount;
+}
+function renderReportProjectChart(projectTotals) {
+  if (reportProjectChart) reportProjectChart.destroy();
+
+  reportProjectChart = new Chart(reportProjectChartCanvas, {
+    type: "bar",
+    data: {
+      labels: projectTotals.map(project => project.name),
+      datasets: [{
+        label: "Tracked Hours",
+        data: projectTotals.map(project => project.seconds / 3600),
+        backgroundColor: projectTotals.map(project => project.color)
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: "y",
+      scales: {
+        x: {
+          beginAtZero: true,
+          title: {
+            display: true,
+            text: "Hours"
+          }
+        }
+      },
+      plugins: {
+        legend: {
+          display: false
+        }
+      }
+    }
+  });
+}
+function renderReportEstimateChart(projectTotals) {
+  const estimatedProjects = projects.filter(project => {
+    const estimate = Number(project.estimatedHours);
+    return Number.isFinite(estimate) && estimate > 0;
+  });
+
+  if (reportEstimateChart) reportEstimateChart.destroy();
+
+  reportEstimateChart = new Chart(reportEstimateChartCanvas, {
+    type: "bar",
+    data: {
+      labels: estimatedProjects.map(project => project.name),
+      datasets: [
+        {
+          label: "Estimated Hours",
+          data: estimatedProjects.map(project => Number(project.estimatedHours))
+        },
+        {
+          label: "Tracked Hours",
+          data: estimatedProjects.map(project => {
+            const total = projectTotals.find(total => total.projectId === project.id);
+            return total ? total.seconds / 3600 : 0;
+          })
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: {
+          beginAtZero: true,
+          title: {
+            display: true,
+            text: "Hours"
+          }
+        }
+      }
+    }
+  });
+}
+function renderReports() {
+  const reportSessions = getReportSessions();
+  const projectTotals = getReportProjectTotals(reportSessions);
+
+  renderReportSummary(reportSessions, projectTotals);
+  renderReportProjectChart(projectTotals);
+  renderReportEstimateChart(projectTotals);
+}
 function getLocalDayStart(dateString) {
   if (!dateString) return null;
 
@@ -770,6 +960,8 @@ async function loadFirestoreData() {
     renderProjectOptions();
     renderManualSessionProjectOptions();
     renderHistoryFilterOptions();
+
+    if (!reportStartDate.value && !reportEndDate.value) setReportCurrentMonth();
     console.log("Loaded projects:", projects);
     console.log("Loaded tasks:", tasks);
   } catch (error) {
@@ -1497,6 +1689,7 @@ function render() {
   renderCalendar();
   renderPie();
   renderWeekly();
+  renderReports();
 }
 
 addTaskButton.addEventListener("click", addTask);
@@ -1574,3 +1767,17 @@ historyEndDate.addEventListener("change", () => {
 fullHistoryContainer.addEventListener("click", handleSessionAction);
 
 calendarContainer.addEventListener("click", handleCalendarAction);
+
+reportStartDate.addEventListener("change", renderReports);
+reportEndDate.addEventListener("change", renderReports);
+
+reportCurrentMonthButton.addEventListener("click", () => {
+  setReportCurrentMonth();
+  renderReports();
+});
+
+reportAllTimeButton.addEventListener("click", () => {
+  reportStartDate.value = "";
+  reportEndDate.value = "";
+  renderReports();
+});

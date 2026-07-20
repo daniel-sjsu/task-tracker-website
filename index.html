@@ -299,7 +299,20 @@
           <p>Analyze work totals across projects, tasks, and date ranges.</p>
         </div>
       </div>
-
+      <section class="card filter-bar">
+        <label>
+          <span>From</span>
+          <input id="reportStartDate" type="date">
+        </label>
+      
+        <label>
+          <span>To</span>
+          <input id="reportEndDate" type="date">
+        </label>
+      
+        <button id="reportCurrentMonthButton" class="secondary-button" type="button">Current Month</button>
+        <button id="reportAllTimeButton" class="secondary-button" type="button">All Time</button>
+      </section>
       <div class="summary-grid">
         <section class="card metric-card">
           <span class="metric-label">Selected Period</span>
@@ -331,7 +344,9 @@
             </div>
           </div>
 
-          <div class="chart-placeholder">Project report chart will appear here.</div>
+          <div class="chart-container">
+            <canvas id="reportProjectChart"></canvas>
+          </div>
         </section>
 
         <section class="card">
@@ -342,7 +357,9 @@
             </div>
           </div>
 
-          <div class="chart-placeholder">Estimate comparison will appear here.</div>
+          <div class="chart-container">
+            <canvas id="reportEstimateChart"></canvas>
+          </div>
         </section>
       </div>
     </section>

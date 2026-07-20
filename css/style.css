@@ -605,7 +605,9 @@
     outline: 2px solid var(--primary);
     outline-offset: 1px;
   }
-  
+  #reportsView .chart-container {
+    height: 340px;
+  }
   @media (max-width: 700px) {
     .calendar-day {
       min-height: 56px;
