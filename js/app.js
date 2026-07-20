@@ -54,6 +54,11 @@ const manualSessionEndInput = document.getElementById("manualSessionEndInput");
 const manualSessionNoteInput = document.getElementById("manualSessionNoteInput");
 const saveManualSessionButton = document.getElementById("saveManualSessionButton");
 const cancelManualSessionButton = document.getElementById("cancelManualSessionButton");
+const historyProjectFilter = document.getElementById("historyProjectFilter");
+const historyTaskFilter = document.getElementById("historyTaskFilter");
+const historyStartDate = document.getElementById("historyStartDate");
+const historyEndDate = document.getElementById("historyEndDate");
+const fullHistoryContainer = document.getElementById("fullHistoryContainer");
 
 function formatDateTimeLocal(date) {
   const year = date.getFullYear();
@@ -62,6 +67,20 @@ function formatDateTimeLocal(date) {
   const hours = String(date.getHours()).padStart(2, "0");
   const minutes = String(date.getMinutes()).padStart(2, "0");
   return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function getLocalDayStart(dateString) {
+  if (!dateString) return null;
+
+  const [year, month, day] = dateString.split("-").map(Number);
+  return new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
+}
+
+function getLocalDayEnd(dateString) {
+  if (!dateString) return null;
+
+  const [year, month, day] = dateString.split("-").map(Number);
+  return new Date(year, month - 1, day, 23, 59, 59, 999).getTime();
 }
 
 function isTaskVisible(task) {
@@ -94,6 +113,50 @@ function renderManualSessionTaskOptions() {
   manualSessionTaskInput.disabled = projectTasks.length === 0;
   saveManualSessionButton.disabled = projectTasks.length === 0;
 }
+
+function validateHistoryDateRange() {
+  const startTime = getLocalDayStart(historyStartDate.value);
+  const endTime = getLocalDayEnd(historyEndDate.value);
+
+  if (startTime !== null && endTime !== null && startTime > endTime) {
+    historyEndDate.value = historyStartDate.value;
+  }
+
+  renderFullHistory();
+}
+
+function renderHistoryFilterOptions() {
+  const selectedProjectId = historyProjectFilter.value;
+  const selectedTaskId = historyTaskFilter.value;
+
+  historyProjectFilter.innerHTML = `
+    <option value="">All projects</option>
+    ${projects.map(project => `<option value="${project.id}">${escapeHTML(project.name)}</option>`).join("")}
+  `;
+
+  if (projects.some(project => project.id === selectedProjectId)) {
+    historyProjectFilter.value = selectedProjectId;
+  }
+
+  renderHistoryTaskFilterOptions(selectedTaskId);
+}
+
+function renderHistoryTaskFilterOptions(selectedTaskId = "") {
+  const projectId = historyProjectFilter.value;
+  const matchingTasks = projectId
+    ? tasks.filter(task => task.projectId === projectId)
+    : tasks;
+
+  historyTaskFilter.innerHTML = `
+    <option value="">All tasks</option>
+    ${matchingTasks.map(task => `<option value="${task.id}">${escapeHTML(task.name)}</option>`).join("")}
+  `;
+
+  if (matchingTasks.some(task => task.id === selectedTaskId)) {
+    historyTaskFilter.value = selectedTaskId;
+  }
+}
+
 function startTimerStateListener() {
   if (!currentUser) return;
 
@@ -406,7 +469,20 @@ async function handleSessionAction(event) {
       break;
   }
 }
+function getFilteredSessions() {
+  const projectId = historyProjectFilter.value;
+  const taskId = historyTaskFilter.value;
+  const startTime = getLocalDayStart(historyStartDate.value);
+  const endTime = getLocalDayEnd(historyEndDate.value);
 
+  return sessions.filter(session => {
+    if (projectId && session.projectId !== projectId) return false;
+    if (taskId && session.taskId !== taskId) return false;
+    if (startTime !== null && session.start < startTime) return false;
+    if (endTime !== null && session.start > endTime) return false;
+    return true;
+  }).sort((a, b) => b.start - a.start);
+}
 function editSession(sessionId) {
   const session = sessions.find(session => session.id === sessionId);
   if (!session) return;
@@ -561,6 +637,7 @@ async function loadFirestoreData() {
     renderProjects();
     renderProjectOptions();
     renderManualSessionProjectOptions();
+    renderHistoryFilterOptions();
     console.log("Loaded projects:", projects);
     console.log("Loaded tasks:", tasks);
   } catch (error) {
@@ -979,23 +1056,41 @@ function renderTodayHistory() {
 }
 
 function renderFullHistory() {
-  const sortedSessions = [...sessions].sort((a, b) => b.start - a.start);
+  const filteredSessions = getFilteredSessions();
 
-  if (sortedSessions.length === 0) {
-    historyContainer.textContent = "No session history";
+  if (filteredSessions.length === 0) {
+    fullHistoryContainer.innerHTML = `<p class="empty-state">No sessions match the selected filters.</p>`;
     return;
   }
 
-  historyContainer.innerHTML = sortedSessions.map(session => {
-    const startTime = new Date(session.start).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
-    const endTime = new Date(session.end).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  fullHistoryContainer.innerHTML = filteredSessions.map(session => {
+    const start = new Date(session.start);
+    const end = new Date(session.end);
+
+    const dateLabel = start.toLocaleDateString([], {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric"
+    });
+
+    const startTime = start.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit"
+    });
+
+    const endTime = end.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit"
+    });
 
     return `
       <div class="history-entry">
         <div class="session-details">
           <div class="session-project">${escapeHTML(session.projectName || "Unknown project")}</div>
           <div class="session-task">${escapeHTML(session.taskName || "Unknown task")}</div>
-          <div class="session-time">${startTime} - ${endTime} · ${formatDuration(session.durationSeconds)}</div>
+          <div class="session-time">${dateLabel} · ${startTime}–${endTime} · ${formatDuration(session.durationSeconds)}</div>
+          ${session.note ? `<div class="session-note">${escapeHTML(session.note)}</div>` : ""}
         </div>
 
         <div class="session-actions">
@@ -1006,6 +1101,7 @@ function renderFullHistory() {
     `;
   }).join("");
 }
+
 
 
 function renderPie() {
@@ -1321,3 +1417,14 @@ historyContainer.addEventListener("click", handleSessionAction);
 
 
 projectsContainer.addEventListener("click", handleTaskAction);
+
+
+historyProjectFilter.addEventListener("change", () => {
+  renderHistoryTaskFilterOptions();
+  renderFullHistory();
+});
+
+historyTaskFilter.addEventListener("change", renderFullHistory);
+historyStartDate.addEventListener("change", validateHistoryDateRange);
+historyEndDate.addEventListener("change", validateHistoryDateRange);
+fullHistoryContainer.addEventListener("click", handleSessionAction);
