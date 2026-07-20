@@ -979,6 +979,13 @@ function renderTasks() {
       .forEach(parentTask => {
         appendTaskTree(projectTaskContainer, parentTask, projectTasks);
       });
+    projectGroup.addEventListener("toggle", () => {
+        if (projectGroup.open) {
+          collapsedActiveProjects.delete(projectId);
+        } else {
+          collapsedActiveProjects.add(projectId);
+        }
+      });
 
     projectGroup.appendChild(summary);
     projectGroup.appendChild(projectTaskContainer);
@@ -1975,13 +1982,7 @@ projectsContainer.addEventListener("click", handleTaskAction);
 projectNameInput.addEventListener("keydown", event => {
   if (event.key === "Enter") saveProject();
 });
-projectGroup.addEventListener("toggle", () => {
-  if (projectGroup.open) {
-    collapsedActiveProjects.delete(projectId);
-  } else {
-    collapsedActiveProjects.add(projectId);
-  }
-});
+
 
 // Tasks
 addTaskButton.addEventListener("click", addTask);
