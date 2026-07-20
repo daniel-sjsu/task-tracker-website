@@ -1,7 +1,7 @@
 import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from "./firebase.js";
 import {  createProject, getProjects, deleteProjectAndData, updateProject as updateProjectInFirestore, archiveProject as archiveProjectInFirestore, restoreProject as restoreProjectInFirestore,
           createTask, getTasks, completeTask as completeTaskInFirestore, reopenTask, deleteTask as deleteTaskFromFirestore, deleteSessionsByTask,
-          getSessions, createSession, deleteSession as deleteSessionFromFirestore, updateSession as updateSessionInFirestore,
+          getSessions, createSession, deleteSession as deleteSessionFromFirestore, updateSession as updateSessionInFirestore, updateTask as updateTaskInFirestore,
           saveTimerState, listenToTimerState } from "./database.js";
 
 let projects = [];
@@ -19,6 +19,7 @@ let currentUser = null;
 let unsubscribeTimerState = null;
 let editingProjectId = null;
 let editingSessionId = null;
+let editingTaskId = null;
 
 const nameInput = document.getElementById("name");
 const goalInput = document.getElementById("goal");
@@ -586,12 +587,36 @@ onAuthStateChanged(auth, async user => {
   }
 });
 
+function openTaskEditor(taskId) {
+  const task = tasks.find(task => task.id === taskId);
+  if (!task) return;
+
+  editingTaskId = task.id;
+  taskProjectInput.value = task.projectId;
+  nameInput.value = task.name;
+  goalInput.value = task.targetHours ?? "";
+  addTaskButton.textContent = "Save Changes";
+  nameInput.focus();
+  nameInput.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function resetTaskForm() {
+  editingTaskId = null;
+  nameInput.value = "";
+  goalInput.value = "";
+  addTaskButton.textContent = "Add Task";
+
+  const generalProject = projects.find(project => !project.archived && project.name.trim().toLowerCase() === "general");
+  if (generalProject) taskProjectInput.value = generalProject.id;
+}
+
 async function addTask() {
   if (!currentUser) return;
 
   const name = nameInput.value.trim();
   const generalProject = projects.find(project => !project.archived && project.name.trim().toLowerCase() === "general");
   const projectId = taskProjectInput.value || generalProject?.id;
+  const targetHours = goalInput.value === "" ? null : Number(goalInput.value);
 
   if (!name) {
     alert("Enter a task name.");
@@ -603,25 +628,46 @@ async function addTask() {
     return;
   }
 
+  if (targetHours !== null && (!Number.isFinite(targetHours) || targetHours < 0)) {
+    alert("Enter a valid target time.");
+    return;
+  }
+
   try {
-    await createTask(currentUser.uid, projectId, {
-      name,
-      description: "",
-      targetHours: goalInput.value ? Number(goalInput.value) : null,
-      parentTaskId: null
-    });
+    addTaskButton.disabled = true;
+
+    if (editingTaskId) {
+      const existingTask = tasks.find(task => task.id === editingTaskId);
+    
+      if (state.runningTaskId === editingTaskId && existingTask?.projectId !== projectId) {
+        alert("Stop the running timer before moving this task to another project.");
+        return;
+      }
+    
+      await updateTaskInFirestore(currentUser.uid, editingTaskId, {
+        name,
+        projectId,
+        targetHours
+      });
+    } else {
+      await createTask(currentUser.uid, projectId, {
+        name,
+        description: "",
+        targetHours,
+        parentTaskId: null
+      });
+    }
 
     tasks = await getTasks(currentUser.uid);
-
-    nameInput.value = "";
-    goalInput.value = "";
-    taskProjectInput.value = generalProject?.id || projectId;
-
+    resetTaskForm();
     renderProjects();
+    renderManualSessionProjectOptions();
     render();
   } catch (error) {
-    console.error("Failed to create task:", error);
-    alert("The task could not be created.");
+    console.error(editingTaskId ? "Failed to update task:" : "Failed to create task:", error);
+    alert(editingTaskId ? "The task could not be updated." : "The task could not be created.");
+  } finally {
+    addTaskButton.disabled = false;
   }
 }
 
@@ -840,22 +886,24 @@ function renderDashboard() {
   `;
 }
 
-function renderHistory() {
+function renderTodayHistory() {
   const todaySessions = [...getTodaySessions()].sort((a, b) => b.start - a.start);
 
   if (todaySessions.length === 0) {
-    historyContainer.textContent = "No sessions today";
+    todayHistoryContainer.textContent = "No sessions today";
     return;
   }
 
-  historyContainer.innerHTML = todaySessions.map(session => {
+  todayHistoryContainer.innerHTML = todaySessions.map(session => {
     const startTime = new Date(session.start).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     const endTime = new Date(session.end).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
     return `
       <div class="history-entry">
-        <div>
-          ${startTime} - ${endTime} - ${escapeHTML(session.taskName)} (${formatDuration(session.durationSeconds)})
+        <div class="session-details">
+          <div class="session-project">${escapeHTML(session.projectName || "Unknown project")}</div>
+          <div class="session-task">${escapeHTML(session.taskName || "Unknown task")}</div>
+          <div class="session-time">${startTime} - ${endTime} · ${formatDuration(session.durationSeconds)}</div>
         </div>
 
         <div class="session-actions">
@@ -866,6 +914,36 @@ function renderHistory() {
     `;
   }).join("");
 }
+
+function renderFullHistory() {
+  const sortedSessions = [...sessions].sort((a, b) => b.start - a.start);
+
+  if (sortedSessions.length === 0) {
+    historyContainer.textContent = "No session history";
+    return;
+  }
+
+  historyContainer.innerHTML = sortedSessions.map(session => {
+    const startTime = new Date(session.start).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+    const endTime = new Date(session.end).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+    return `
+      <div class="history-entry">
+        <div class="session-details">
+          <div class="session-project">${escapeHTML(session.projectName || "Unknown project")}</div>
+          <div class="session-task">${escapeHTML(session.taskName || "Unknown task")}</div>
+          <div class="session-time">${startTime} - ${endTime} · ${formatDuration(session.durationSeconds)}</div>
+        </div>
+
+        <div class="session-actions">
+          <button type="button" data-session-action="edit" data-session-id="${session.id}">Edit</button>
+          <button type="button" data-session-action="delete" data-session-id="${session.id}">Delete</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
 
 function renderPie() {
   const totals = {};
@@ -1000,6 +1078,7 @@ function createTaskElement(task) {
     <br>
     ${timerButton}
     ${completionButton}
+    <button type="button" data-action="edit" data-task-id="${task.id}">Edit</button>
     <button type="button" data-action="delete" data-task-id="${task.id}">Delete</button>
   `;
 
@@ -1101,6 +1180,9 @@ async function handleTaskAction(event) {
     case "delete":
       await deleteTask(taskId);
       break;
+    case "edit":
+      openTaskEditor(taskId);
+      break;
     
   }
 }
@@ -1108,7 +1190,8 @@ async function handleTaskAction(event) {
 function render() {
   renderDashboard();
   renderTasks();
-  renderHistory();
+  renderTodayHistory();
+  renderFullHistory();
   renderPie();
   renderWeekly();
 }

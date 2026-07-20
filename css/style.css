@@ -432,27 +432,32 @@
     flex: 0 0 auto;
   }
   
-  @media (max-width: 850px) {
-    .header-content, .page-heading {
-      align-items: stretch;
-      flex-direction: column;
-    }
+  .history-entry {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+  }
   
-    .auth-section {
-      justify-content: flex-start;
-    }
+  .session-project {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
   
-    .dashboard-layout, .history-layout {
-      grid-template-columns: 1fr;
-    }
+  .session-task {
+    font-weight: 700;
+  }
   
-    .nav-content {
-      padding: 0 14px;
-    }
+  .session-time {
+    margin-top: 3px;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+  }
   
-    .page-container {
-      padding: 22px 14px 40px;
-    }
+  .session-actions {
+    display: flex;
+    gap: 8px;
   }
   .project-card-heading {
     display: flex;
@@ -493,6 +498,29 @@
   .project-card.archived {
     opacity: 0.75;
   }
+  @media (max-width: 850px) {
+    .header-content, .page-heading {
+      align-items: stretch;
+      flex-direction: column;
+    }
+  
+    .auth-section {
+      justify-content: flex-start;
+    }
+  
+    .dashboard-layout, .history-layout {
+      grid-template-columns: 1fr;
+    }
+  
+    .nav-content {
+      padding: 0 14px;
+    }
+  
+    .page-container {
+      padding: 22px 14px 40px;
+    }
+  }
+  
   @media (max-width: 520px) {
     .header-content {
       padding: 18px 14px;
