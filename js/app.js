@@ -13,6 +13,9 @@ let state = {
   startTime: null
 };
 
+let calendarDate = new Date();
+calendarDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1);
+
 let pieChart = null;
 let weeklyChart = null;
 let currentUser = null;
@@ -59,6 +62,7 @@ const historyTaskFilter = document.getElementById("historyTaskFilter");
 const historyStartDate = document.getElementById("historyStartDate");
 const historyEndDate = document.getElementById("historyEndDate");
 const fullHistoryContainer = document.getElementById("fullHistoryContainer");
+const calendarContainer = document.getElementById("calendarContainer");
 
 function formatDateTimeLocal(date) {
   const year = date.getFullYear();
@@ -67,6 +71,13 @@ function formatDateTimeLocal(date) {
   const hours = String(date.getHours()).padStart(2, "0");
   const minutes = String(date.getMinutes()).padStart(2, "0");
   return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function getLocalDateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function getLocalDayStart(dateString) {
@@ -86,6 +97,17 @@ function getLocalDayEnd(dateString) {
 function isTaskVisible(task) {
   const project = projects.find(project => project.id === task.projectId);
   return !task.archived && project && !project.archived;
+}
+
+function getProjectTaskFilteredSessions() {
+  const projectId = historyProjectFilter.value;
+  const taskId = historyTaskFilter.value;
+
+  return sessions.filter(session => {
+    if (projectId && session.projectId !== projectId) return false;
+    if (taskId && session.taskId !== taskId) return false;
+    return true;
+  });
 }
 
 function renderManualSessionProjectOptions() {
@@ -470,14 +492,10 @@ async function handleSessionAction(event) {
   }
 }
 function getFilteredSessions() {
-  const projectId = historyProjectFilter.value;
-  const taskId = historyTaskFilter.value;
   const startTime = getLocalDayStart(historyStartDate.value);
   const endTime = getLocalDayEnd(historyEndDate.value);
 
-  return sessions.filter(session => {
-    if (projectId && session.projectId !== projectId) return false;
-    if (taskId && session.taskId !== taskId) return false;
+  return getProjectTaskFilteredSessions().filter(session => {
     if (startTime !== null && session.start < startTime) return false;
     if (endTime !== null && session.start > endTime) return false;
     return true;
@@ -618,6 +636,20 @@ async function loginWithGoogle() {
   }
 }
 
+function formatCalendarDuration(seconds) {
+  seconds = Number(seconds);
+
+  if (!Number.isFinite(seconds) || seconds <= 0) return "";
+
+  const totalMinutes = Math.round(seconds / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h`;
+  return `${minutes}m`;
+}
+
 async function logoutUser() {
   try {
     await signOut(auth);
@@ -625,6 +657,106 @@ async function logoutUser() {
     console.error("Sign-out failed:", error);
     userStatus.textContent = `Sign-out failed: ${error.message}`;
   }
+}
+
+function renderCalendar() {
+  const year = calendarDate.getFullYear();
+  const month = calendarDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const firstWeekday = firstDay.getDay();
+  const daysInMonth = lastDay.getDate();
+
+  const dailyTotals = getProjectTaskFilteredSessions().reduce((totals, session) => {
+    const dateKey = getLocalDateKey(new Date(session.start));
+    totals[dateKey] = (totals[dateKey] || 0) + Number(session.durationSeconds || 0);
+    return totals;
+  }, {});
+
+  const monthLabel = firstDay.toLocaleDateString([], {
+    month: "long",
+    year: "numeric"
+  });
+
+  const selectedStartDate = historyStartDate.value;
+  const selectedEndDate = historyEndDate.value;
+
+  let dayCells = "";
+
+  for (let index = 0; index < firstWeekday; index++) {
+    dayCells += `<div class="calendar-day calendar-day-empty"></div>`;
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const date = new Date(year, month, day);
+    const dateKey = getLocalDateKey(date);
+    const seconds = dailyTotals[dateKey] || 0;
+    const isToday = dateKey === getLocalDateKey(new Date());
+    const isSelected = dateKey === selectedStartDate && dateKey === selectedEndDate;
+
+    dayCells += `
+      <button
+        type="button"
+        class="calendar-day${isToday ? " today" : ""}${isSelected ? " selected" : ""}${seconds > 0 ? " has-time" : ""}"
+        data-calendar-date="${dateKey}"
+      >
+        <span class="calendar-day-number">${day}</span>
+        ${seconds > 0 ? `<span class="calendar-day-total">${formatCalendarDuration(seconds)}</span>` : ""}
+      </button>
+    `;
+  }
+
+  calendarContainer.innerHTML = `
+    <div class="calendar-header">
+      <button type="button" class="secondary-button" data-calendar-action="previous" aria-label="Previous month">‹</button>
+      <h3>${monthLabel}</h3>
+      <button type="button" class="secondary-button" data-calendar-action="next" aria-label="Next month">›</button>
+    </div>
+
+    <div class="calendar-weekdays">
+      <span>Sun</span>
+      <span>Mon</span>
+      <span>Tue</span>
+      <span>Wed</span>
+      <span>Thu</span>
+      <span>Fri</span>
+      <span>Sat</span>
+    </div>
+
+    <div class="calendar-grid">
+      ${dayCells}
+    </div>
+  `;
+}
+
+function handleCalendarAction(event) {
+  const navigationButton = event.target.closest("button[data-calendar-action]");
+
+  if (navigationButton) {
+    const action = navigationButton.dataset.calendarAction;
+
+    if (action === "previous") {
+      calendarDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1, 1);
+    }
+
+    if (action === "next") {
+      calendarDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1);
+    }
+
+    renderCalendar();
+    return;
+  }
+
+  const dayButton = event.target.closest("button[data-calendar-date]");
+  if (!dayButton) return;
+
+  const selectedDate = dayButton.dataset.calendarDate;
+
+  historyStartDate.value = selectedDate;
+  historyEndDate.value = selectedDate;
+
+  renderFullHistory();
+  renderCalendar();
 }
 
 async function loadFirestoreData() {
@@ -1362,6 +1494,7 @@ function render() {
   renderTasks();
   renderTodayHistory();
   renderFullHistory();
+  renderCalendar();
   renderPie();
   renderWeekly();
 }
@@ -1422,9 +1555,22 @@ projectsContainer.addEventListener("click", handleTaskAction);
 historyProjectFilter.addEventListener("change", () => {
   renderHistoryTaskFilterOptions();
   renderFullHistory();
+  renderCalendar();
 });
 
-historyTaskFilter.addEventListener("change", renderFullHistory);
-historyStartDate.addEventListener("change", validateHistoryDateRange);
-historyEndDate.addEventListener("change", validateHistoryDateRange);
+historyTaskFilter.addEventListener("change", () => {
+  renderFullHistory();
+  renderCalendar();
+});
+historyStartDate.addEventListener("change", () => {
+  validateHistoryDateRange();
+  renderCalendar();
+});
+
+historyEndDate.addEventListener("change", () => {
+  validateHistoryDateRange();
+  renderCalendar();
+});
 fullHistoryContainer.addEventListener("click", handleSessionAction);
+
+calendarContainer.addEventListener("click", handleCalendarAction);
