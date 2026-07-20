@@ -1,9 +1,12 @@
+// ============================================================================
+// IMPORTS
+// ============================================================================
 import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from "./firebase.js";
-import {  createProject, getProjects, deleteProjectAndData, updateProject as updateProjectInFirestore, archiveProject as archiveProjectInFirestore, restoreProject as restoreProjectInFirestore,
-          createTask, getTasks, completeTask as completeTaskInFirestore, reopenTask, deleteTask as deleteTaskFromFirestore, deleteSessionsByTask, archiveTask as archiveTaskInFirestore, restoreArchivedTask as restoreArchivedTaskInFirestore,
-          getSessions, createSession, deleteSession as deleteSessionFromFirestore, updateSession as updateSessionInFirestore, updateTask as updateTaskInFirestore,
-          saveTimerState, listenToTimerState } from "./database.js";
+import { createProject, getProjects, deleteProjectAndData, updateProject as updateProjectInFirestore, archiveProject as archiveProjectInFirestore, restoreProject as restoreProjectInFirestore, createTask, getTasks, updateTask as updateTaskInFirestore, completeTask as completeTaskInFirestore, reopenTask, deleteTask as deleteTaskFromFirestore, deleteSessionsByTask, archiveTask as archiveTaskInFirestore, restoreArchivedTask as restoreArchivedTaskInFirestore, getSessions, createSession, updateSession as updateSessionInFirestore, deleteSession as deleteSessionFromFirestore, saveTimerState, listenToTimerState } from "./database.js";
 
+// ============================================================================
+// APPLICATION STATE
+// ============================================================================
 let projects = [];
 let tasks = [];
 let sessions = [];
@@ -13,35 +16,32 @@ let state = {
   startTime: null
 };
 
+let currentUser = null;
+let unsubscribeTimerState = null;
+let editingProjectId = null;
+let editingTaskId = null;
+let editingSessionId = null;
+
 let calendarDate = new Date();
 calendarDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1);
 
 let pieChart = null;
 let weeklyChart = null;
-let currentUser = null;
-let unsubscribeTimerState = null;
-let editingProjectId = null;
-let editingSessionId = null;
-let editingTaskId = null;
 let reportProjectChart = null;
 let reportEstimateChart = null;
 
-
+// ============================================================================
+// DOM REFERENCES
+// ============================================================================
 const nameInput = document.getElementById("name");
 const goalInput = document.getElementById("goal");
+const taskProjectInput = document.getElementById("taskProjectInput");
+const taskParentInput = document.getElementById("taskParentInput");
 const addTaskButton = document.getElementById("addTaskButton");
-const exportCSVButton = document.getElementById("exportCSVButton");
-const completedTasksHeading = document.getElementById("completedTasksHeading");
 const activeTasksContainer = document.getElementById("tasks");
 const completedTasksContainer = document.getElementById("completedTasks");
-const dashboardContainer = document.getElementById("dashboard");
-const todayHistoryContainer = document.getElementById("history");
-const historyContainer = document.getElementById("fullHistoryContainer");
-const loginButton = document.getElementById("loginButton");
-const logoutButton = document.getElementById("logoutButton");
-const userStatus = document.getElementById("userStatus");
-const appContent = document.getElementById("appContent");
-const taskProjectInput = document.getElementById("taskProjectInput");
+const completedTasksHeading = document.getElementById("completedTasksHeading");
+
 const newProjectButton = document.getElementById("newProjectButton");
 const projectFormCard = document.getElementById("projectFormCard");
 const projectNameInput = document.getElementById("projectNameInput");
@@ -51,6 +51,7 @@ const projectHoursInput = document.getElementById("projectHoursInput");
 const saveProjectButton = document.getElementById("saveProjectButton");
 const cancelProjectButton = document.getElementById("cancelProjectButton");
 const projectsContainer = document.getElementById("projectsContainer");
+
 const addManualSessionButton = document.getElementById("addManualSessionButton");
 const manualSessionForm = document.getElementById("manualSessionForm");
 const manualSessionProjectInput = document.getElementById("manualSessionProjectInput");
@@ -60,12 +61,18 @@ const manualSessionEndInput = document.getElementById("manualSessionEndInput");
 const manualSessionNoteInput = document.getElementById("manualSessionNoteInput");
 const saveManualSessionButton = document.getElementById("saveManualSessionButton");
 const cancelManualSessionButton = document.getElementById("cancelManualSessionButton");
+
+const dashboardContainer = document.getElementById("dashboard");
+const todayHistoryContainer = document.getElementById("history");
+const fullHistoryContainer = document.getElementById("fullHistoryContainer");
+const exportCSVButton = document.getElementById("exportCSVButton");
+
 const historyProjectFilter = document.getElementById("historyProjectFilter");
 const historyTaskFilter = document.getElementById("historyTaskFilter");
 const historyStartDate = document.getElementById("historyStartDate");
 const historyEndDate = document.getElementById("historyEndDate");
-const fullHistoryContainer = document.getElementById("fullHistoryContainer");
 const calendarContainer = document.getElementById("calendarContainer");
+
 const reportStartDate = document.getElementById("reportStartDate");
 const reportEndDate = document.getElementById("reportEndDate");
 const reportCurrentMonthButton = document.getElementById("reportCurrentMonthButton");
@@ -76,7 +83,26 @@ const reportDailyAverage = document.getElementById("reportDailyAverage");
 const reportCompletedTasks = document.getElementById("reportCompletedTasks");
 const reportProjectChartCanvas = document.getElementById("reportProjectChart");
 const reportEstimateChartCanvas = document.getElementById("reportEstimateChart");
-const taskParentInput = document.getElementById("taskParentInput");
+
+const loginButton = document.getElementById("loginButton");
+const logoutButton = document.getElementById("logoutButton");
+const userStatus = document.getElementById("userStatus");
+const appContent = document.getElementById("appContent");
+
+const navButtons = document.querySelectorAll(".nav-button");
+const appViews = document.querySelectorAll(".app-view");
+
+// ============================================================================
+// GENERAL UTILITIES
+// ============================================================================
+function escapeHTML(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
 
 function formatDateTimeLocal(date) {
   const year = date.getFullYear();
@@ -94,204 +120,6 @@ function getLocalDateKey(date) {
   return `${year}-${month}-${day}`;
 }
 
-function setReportCurrentMonth() {
-  const now = new Date();
-  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-
-  reportStartDate.value = getLocalDateKey(firstDay);
-  reportEndDate.value = getLocalDateKey(lastDay);
-}
-
-function getReportSessions() {
-  const startTime = getLocalDayStart(reportStartDate.value);
-  const endTime = getLocalDayEnd(reportEndDate.value);
-
-  return sessions.filter(session => {
-    if (startTime !== null && session.start < startTime) return false;
-    if (endTime !== null && session.start > endTime) return false;
-    return true;
-  });
-}
-
-function getTimestampMillis(value) {
-  if (value?.toMillis) return value.toMillis();
-
-  const milliseconds = Number(value);
-  return Number.isFinite(milliseconds) ? milliseconds : null;
-}
-
-function getCompletedTasksForReport() {
-  const startTime = getLocalDayStart(reportStartDate.value);
-  const endTime = getLocalDayEnd(reportEndDate.value);
-
-  return tasks.filter(task => {
-    if (!task.completed || !task.completedAt) return false;
-
-    const completedTime = getTimestampMillis(task.completedAt);
-    if (completedTime === null) return false;
-    if (startTime !== null && completedTime < startTime) return false;
-    if (endTime !== null && completedTime > endTime) return false;
-
-    return true;
-  });
-}
-
-function getReportProjectTotals(reportSessions) {
-  const totals = {};
-
-  reportSessions.forEach(session => {
-    const projectId = session.projectId || "unknown";
-
-    if (!totals[projectId]) {
-      const project = projects.find(project => project.id === projectId);
-
-      totals[projectId] = {
-        projectId,
-        name: project?.name || session.projectName || "Unknown project",
-        color: project?.color || "#777777",
-        seconds: 0
-      };
-    }
-
-    totals[projectId].seconds += Number(session.durationSeconds || 0);
-  });
-
-  return Object.values(totals).sort((a, b) => b.seconds - a.seconds);
-}
-
-function renderTaskParentOptions(selectedParentId = "") {
-  const projectId = taskProjectInput.value;
-
-  const possibleParents = tasks.filter(task => {
-    if (task.projectId !== projectId) return false;
-    if (task.parentTaskId) return false;
-    if (task.archived) return false;
-    if (task.id === editingTaskId) return false;
-    return true;
-  });
-
-  taskParentInput.innerHTML = `
-    <option value="">None — top-level task</option>
-    ${possibleParents.map(task => `<option value="${task.id}">${escapeHTML(task.name)}</option>`).join("")}
-  `;
-
-  if (possibleParents.some(task => task.id === selectedParentId)) {
-    taskParentInput.value = selectedParentId;
-  }
-}
-
-function getReportDayCount(reportSessions) {
-  const startTime = getLocalDayStart(reportStartDate.value);
-  const endTime = getLocalDayEnd(reportEndDate.value);
-
-  if (startTime !== null && endTime !== null) {
-    return Math.max(1, Math.round((endTime - startTime) / 86400000));
-  }
-
-  if (reportSessions.length === 0) return 1;
-
-  const earliest = Math.min(...reportSessions.map(session => session.start));
-  const latest = Math.max(...reportSessions.map(session => session.start));
-
-  return Math.max(1, Math.floor((latest - earliest) / 86400000) + 1);
-}
-function renderReportSummary(reportSessions, projectTotals) {
-  const totalSeconds = reportSessions.reduce((sum, session) => sum + Number(session.durationSeconds || 0), 0);
-  const totalHours = totalSeconds / 3600;
-  const dayCount = getReportDayCount(reportSessions);
-  const averageHours = totalHours / dayCount;
-  const topProject = projectTotals[0];
-  const completedCount = getCompletedTasksForReport().length;
-
-  reportTotalHours.textContent = `${totalHours.toFixed(2)} h`;
-  reportTopProject.textContent = topProject?.name || "None";
-  reportDailyAverage.textContent = `${averageHours.toFixed(2)} h`;
-  reportCompletedTasks.textContent = completedCount;
-}
-function renderReportProjectChart(projectTotals) {
-  if (reportProjectChart) reportProjectChart.destroy();
-
-  reportProjectChart = new Chart(reportProjectChartCanvas, {
-    type: "bar",
-    data: {
-      labels: projectTotals.map(project => project.name),
-      datasets: [{
-        label: "Tracked Hours",
-        data: projectTotals.map(project => project.seconds / 3600),
-        backgroundColor: projectTotals.map(project => project.color)
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      indexAxis: "y",
-      scales: {
-        x: {
-          beginAtZero: true,
-          title: {
-            display: true,
-            text: "Hours"
-          }
-        }
-      },
-      plugins: {
-        legend: {
-          display: false
-        }
-      }
-    }
-  });
-}
-function renderReportEstimateChart(projectTotals) {
-  const estimatedProjects = projects.filter(project => {
-    const estimate = Number(project.estimatedHours);
-    return Number.isFinite(estimate) && estimate > 0;
-  });
-
-  if (reportEstimateChart) reportEstimateChart.destroy();
-
-  reportEstimateChart = new Chart(reportEstimateChartCanvas, {
-    type: "bar",
-    data: {
-      labels: estimatedProjects.map(project => project.name),
-      datasets: [
-        {
-          label: "Estimated Hours",
-          data: estimatedProjects.map(project => Number(project.estimatedHours))
-        },
-        {
-          label: "Tracked Hours",
-          data: estimatedProjects.map(project => {
-            const total = projectTotals.find(total => total.projectId === project.id);
-            return total ? total.seconds / 3600 : 0;
-          })
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {
-        y: {
-          beginAtZero: true,
-          title: {
-            display: true,
-            text: "Hours"
-          }
-        }
-      }
-    }
-  });
-}
-function renderReports() {
-  const reportSessions = getReportSessions();
-  const projectTotals = getReportProjectTotals(reportSessions);
-
-  renderReportSummary(reportSessions, projectTotals);
-  renderReportProjectChart(projectTotals);
-  renderReportEstimateChart(projectTotals);
-}
 function getLocalDayStart(dateString) {
   if (!dateString) return null;
 
@@ -306,88 +134,87 @@ function getLocalDayEnd(dateString) {
   return new Date(year, month - 1, day, 23, 59, 59, 999).getTime();
 }
 
-function isTaskVisible(task) {
-  const project = projects.find(project => project.id === task.projectId);
-  return !task.archived && project && !project.archived;
+function getTimestampMillis(value) {
+  if (value?.toMillis) return value.toMillis();
+
+  const milliseconds = Number(value);
+  return Number.isFinite(milliseconds) ? milliseconds : null;
 }
 
-function getProjectTaskFilteredSessions() {
-  const projectId = historyProjectFilter.value;
-  const taskId = historyTaskFilter.value;
+function formatDuration(seconds) {
+  seconds = Number(seconds);
 
-  return sessions.filter(session => {
-    if (projectId && session.projectId !== projectId) return false;
-    if (taskId && session.taskId !== taskId) return false;
-    return true;
-  });
+  if (!Number.isFinite(seconds) || seconds < 0) seconds = 0;
+
+  const totalMinutes = Math.floor(seconds / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  return `${hours}h ${minutes}m`;
 }
 
-function renderManualSessionProjectOptions() {
-  const activeProjects = projects.filter(project => !project.archived);
+function formatCalendarDuration(seconds) {
+  seconds = Number(seconds);
 
-  manualSessionProjectInput.innerHTML = activeProjects.length
-    ? activeProjects.map(project => `<option value="${project.id}">${escapeHTML(project.name)}</option>`).join("")
-    : `<option value="">No active projects</option>`;
+  if (!Number.isFinite(seconds) || seconds <= 0) return "";
 
-  const generalProject = activeProjects.find(project => project.name.trim().toLowerCase() === "general");
+  const totalMinutes = Math.round(seconds / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
 
-  if (generalProject) manualSessionProjectInput.value = generalProject.id;
-
-  renderManualSessionTaskOptions();
+  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h`;
+  return `${minutes}m`;
 }
 
-function renderManualSessionTaskOptions() {
-  const projectId = manualSessionProjectInput.value;
-  const projectTasks = tasks.filter(task => task.projectId === projectId && !task.archived);
-
-  manualSessionTaskInput.innerHTML = projectTasks.length
-    ? projectTasks.map(task => `<option value="${task.id}">${escapeHTML(task.name)}</option>`).join("")
-    : `<option value="">No tasks available</option>`;
-
-  manualSessionTaskInput.disabled = projectTasks.length === 0;
-  saveManualSessionButton.disabled = projectTasks.length === 0;
+function normalizeSessions(sessionDocuments) {
+  return sessionDocuments.map(session => ({
+    ...session,
+    start: session.start?.toMillis ? session.start.toMillis() : Number(session.start),
+    end: session.end?.toMillis ? session.end.toMillis() : Number(session.end),
+    durationSeconds: Number(session.durationSeconds || 0)
+  }));
 }
 
-function validateHistoryDateRange() {
-  const startTime = getLocalDayStart(historyStartDate.value);
-  const endTime = getLocalDayEnd(historyEndDate.value);
-
-  if (startTime !== null && endTime !== null && startTime > endTime) {
-    historyEndDate.value = historyStartDate.value;
+// ============================================================================
+// AUTHENTICATION AND DATA LOADING
+// ============================================================================
+async function loginWithGoogle() {
+  try {
+    await signInWithPopup(auth, googleProvider);
+  } catch (error) {
+    console.error("Google sign-in failed:", error);
+    userStatus.textContent = `Sign-in failed: ${error.message}`;
   }
-
-  renderFullHistory();
 }
 
-function renderHistoryFilterOptions() {
-  const selectedProjectId = historyProjectFilter.value;
-  const selectedTaskId = historyTaskFilter.value;
-
-  historyProjectFilter.innerHTML = `
-    <option value="">All projects</option>
-    ${projects.map(project => `<option value="${project.id}">${escapeHTML(project.name)}</option>`).join("")}
-  `;
-
-  if (projects.some(project => project.id === selectedProjectId)) {
-    historyProjectFilter.value = selectedProjectId;
+async function logoutUser() {
+  try {
+    await signOut(auth);
+  } catch (error) {
+    console.error("Sign-out failed:", error);
+    userStatus.textContent = `Sign-out failed: ${error.message}`;
   }
-
-  renderHistoryTaskFilterOptions(selectedTaskId);
 }
 
-function renderHistoryTaskFilterOptions(selectedTaskId = "") {
-  const projectId = historyProjectFilter.value;
-  const matchingTasks = projectId
-    ? tasks.filter(task => task.projectId === projectId)
-    : tasks;
+async function loadFirestoreData() {
+  if (!currentUser) return;
 
-  historyTaskFilter.innerHTML = `
-    <option value="">All tasks</option>
-    ${matchingTasks.map(task => `<option value="${task.id}">${escapeHTML(task.name)}</option>`).join("")}
-  `;
+  try {
+    projects = await getProjects(currentUser.uid);
+    tasks = await getTasks(currentUser.uid);
+    sessions = normalizeSessions(await getSessions(currentUser.uid));
+    renderProjects();
+    renderProjectOptions();
+    renderManualSessionProjectOptions();
+    renderHistoryFilterOptions();
 
-  if (matchingTasks.some(task => task.id === selectedTaskId)) {
-    historyTaskFilter.value = selectedTaskId;
+    if (!reportStartDate.value && !reportEndDate.value) setReportCurrentMonth();
+    console.log("Loaded projects:", projects);
+    console.log("Loaded tasks:", tasks);
+  } catch (error) {
+    console.error("Failed to load Firestore data:", error);
+    throw error;
   }
 }
 
@@ -408,13 +235,9 @@ function startTimerStateListener() {
   });
 }
 
-function getCompletedTimestamp(task) {
-  if (task.completedAt?.toMillis) return task.completedAt.toMillis();
-
-  const timestamp = Number(task.completedAt);
-  return Number.isFinite(timestamp) ? timestamp : 0;
-}
-
+// ============================================================================
+// PROJECT MANAGEMENT
+// ============================================================================
 function renderProjectOptions() {
   const activeProjects = projects.filter(project => !project.archived);
   const generalProject = activeProjects.find(project => project.name.trim().toLowerCase() === "general");
@@ -452,55 +275,50 @@ function closeProjectForm() {
   projectHoursInput.value = "";
   saveProjectButton.textContent = "Create Project";
 }
+
 function editProject(projectId) {
   const project = projects.find(project => project.id === projectId);
   if (!project) return;
   openProjectForm(project);
 }
 
-async function deleteProject(projectId) {
+async function saveProject() {
   if (!currentUser) return;
 
-  const project = projects.find(project => project.id === projectId);
-  if (!project) return;
+  const name = projectNameInput.value.trim();
+  const description = projectDescriptionInput.value.trim();
+  const color = projectColorInput.value;
+  const estimatedHours = projectHoursInput.value === "" ? null : Number.parseFloat(projectHoursInput.value);
 
-  if (project.name.trim().toLowerCase() === "general") {
-    alert('The "General" project cannot be deleted because it is the default project.');
+  if (!name) {
+    alert("Enter a project name.");
     return;
   }
 
-  const runningTask = tasks.find(task => task.id === state.runningTaskId);
-
-  if (runningTask?.projectId === projectId) {
-    alert("Stop the running task before deleting this project.");
+  if (estimatedHours !== null && (!Number.isFinite(estimatedHours) || estimatedHours < 0)) {
+    alert("Enter a valid estimated time.");
     return;
   }
-
-  const projectTaskCount = tasks.filter(task => task.projectId === projectId).length;
-  const projectSessionCount = sessions.filter(session => session.projectId === projectId).length;
-
-  const confirmed = window.confirm(
-    `Permanently delete "${project.name}"?\n\n` +
-    `This will also delete ${projectTaskCount} task${projectTaskCount === 1 ? "" : "s"} and ` +
-    `${projectSessionCount} tracked session${projectSessionCount === 1 ? "" : "s"}.\n\n` +
-    `This cannot be undone.`
-  );
-
-  if (!confirmed) return;
 
   try {
-    await deleteProjectAndData(currentUser.uid, projectId);
+    saveProjectButton.disabled = true;
+
+    if (editingProjectId) {
+      await updateProjectInFirestore(currentUser.uid, editingProjectId, { name, description, color, estimatedHours });
+    } else {
+      await createProject(currentUser.uid, { name, description, color, estimatedHours });
+    }
 
     projects = await getProjects(currentUser.uid);
-    tasks = await getTasks(currentUser.uid);
-    sessions = normalizeSessions(await getSessions(currentUser.uid));
-
     renderProjects();
     renderProjectOptions();
-    render();
+    renderTasks();
+    closeProjectForm();
   } catch (error) {
-    console.error("Failed to delete project:", error);
-    alert("The project could not be deleted.");
+    console.error(editingProjectId ? "Failed to update project:" : "Failed to create project:", error);
+    alert(editingProjectId ? "The project could not be updated." : "The project could not be created.");
+  } finally {
+    saveProjectButton.disabled = false;
   }
 }
 
@@ -550,67 +368,53 @@ async function restoreProject(projectId) {
     alert("The project could not be restored.");
   }
 }
-async function handleProjectAction(event) {
-  const button = event.target.closest("button[data-project-action]");
-  if (!button) return;
 
-  const action = button.dataset.projectAction;
-  const projectId = button.dataset.projectId;
-
-  switch (action) {
-    case "edit":
-      editProject(projectId);
-      break;
-    case "archive":
-      await archiveProject(projectId);
-      break;
-    case "restore":
-      await restoreProject(projectId);
-      break;
-    case "delete":
-      await deleteProject(projectId);
-      break;
-  }
-}
-async function saveProject() {
+async function deleteProject(projectId) {
   if (!currentUser) return;
 
-  const name = projectNameInput.value.trim();
-  const description = projectDescriptionInput.value.trim();
-  const color = projectColorInput.value;
-  const estimatedHours = projectHoursInput.value === "" ? null : Number.parseFloat(projectHoursInput.value);
+  const project = projects.find(project => project.id === projectId);
+  if (!project) return;
 
-  if (!name) {
-    alert("Enter a project name.");
+  if (project.name.trim().toLowerCase() === "general") {
+    alert('The "General" project cannot be deleted because it is the default project.');
     return;
   }
 
-  if (estimatedHours !== null && (!Number.isFinite(estimatedHours) || estimatedHours < 0)) {
-    alert("Enter a valid estimated time.");
+  const runningTask = tasks.find(task => task.id === state.runningTaskId);
+
+  if (runningTask?.projectId === projectId) {
+    alert("Stop the running task before deleting this project.");
     return;
   }
+
+  const projectTaskCount = tasks.filter(task => task.projectId === projectId).length;
+  const projectSessionCount = sessions.filter(session => session.projectId === projectId).length;
+
+  const confirmed = window.confirm(
+    `Permanently delete "${project.name}"?\n\n` +
+    `This will also delete ${projectTaskCount} task${projectTaskCount === 1 ? "" : "s"} and ` +
+    `${projectSessionCount} tracked session${projectSessionCount === 1 ? "" : "s"}.\n\n` +
+    `This cannot be undone.`
+  );
+
+  if (!confirmed) return;
 
   try {
-    saveProjectButton.disabled = true;
-
-    if (editingProjectId) {
-      await updateProjectInFirestore(currentUser.uid, editingProjectId, { name, description, color, estimatedHours });
-    } else {
-      await createProject(currentUser.uid, { name, description, color, estimatedHours });
-    }
+    await deleteProjectAndData(currentUser.uid, projectId);
 
     projects = await getProjects(currentUser.uid);
+    tasks = await getTasks(currentUser.uid);
+    sessions = normalizeSessions(await getSessions(currentUser.uid));
+
     renderProjects();
     renderProjectOptions();
-    renderTasks();
-    closeProjectForm();
+    render();
   } catch (error) {
-    console.error(editingProjectId ? "Failed to update project:" : "Failed to create project:", error);
-    alert(editingProjectId ? "The project could not be updated." : "The project could not be created.");
-  } finally {
-    saveProjectButton.disabled = false;
+    console.error("Failed to delete project:", error);
+    alert("The project could not be deleted.");
   }
 }
+
 function renderProjects() {
   const activeProjects = projects.filter(project => !project.archived);
   const archivedProjects = projects.filter(project => project.archived);
@@ -688,74 +492,576 @@ function renderProjects() {
   projectsContainer.innerHTML = activeHTML + archivedHTML;
 }
 
-async function handleSessionAction(event) {
-  const button = event.target.closest("button[data-session-action]");
+async function handleProjectAction(event) {
+  const button = event.target.closest("button[data-project-action]");
   if (!button) return;
 
-  const action = button.dataset.sessionAction;
-  const sessionId = button.dataset.sessionId;
+  const action = button.dataset.projectAction;
+  const projectId = button.dataset.projectId;
 
   switch (action) {
     case "edit":
-      editSession(sessionId);
+      editProject(projectId);
+      break;
+    case "archive":
+      await archiveProject(projectId);
+      break;
+    case "restore":
+      await restoreProject(projectId);
       break;
     case "delete":
-      await deleteSession(sessionId);
+      await deleteProject(projectId);
       break;
   }
 }
-function getFilteredSessions() {
-  const startTime = getLocalDayStart(historyStartDate.value);
-  const endTime = getLocalDayEnd(historyEndDate.value);
 
-  return getProjectTaskFilteredSessions().filter(session => {
-    if (startTime !== null && session.start < startTime) return false;
-    if (endTime !== null && session.start > endTime) return false;
+// ============================================================================
+// TASK AND SUBTASK MANAGEMENT
+// ============================================================================
+function isTaskVisible(task) {
+  const project = projects.find(project => project.id === task.projectId);
+  return !task.archived && project && !project.archived;
+}
+
+function getCompletedTimestamp(task) {
+  if (task.completedAt?.toMillis) return task.completedAt.toMillis();
+
+  const timestamp = Number(task.completedAt);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function renderTaskParentOptions(selectedParentId = "") {
+  const projectId = taskProjectInput.value;
+
+  const possibleParents = tasks.filter(task => {
+    if (task.projectId !== projectId) return false;
+    if (task.parentTaskId) return false;
+    if (task.archived) return false;
+    if (task.id === editingTaskId) return false;
     return true;
-  }).sort((a, b) => b.start - a.start);
-}
-function editSession(sessionId) {
-  const session = sessions.find(session => session.id === sessionId);
-  if (!session) return;
+  });
 
-  editingSessionId = session.id;
+  taskParentInput.innerHTML = `
+    <option value="">None — top-level task</option>
+    ${possibleParents.map(task => `<option value="${task.id}">${escapeHTML(task.name)}</option>`).join("")}
+  `;
 
-  renderManualSessionProjectOptions();
-  manualSessionProjectInput.value = session.projectId;
-  renderManualSessionTaskOptions();
-  manualSessionTaskInput.value = session.taskId;
-
-  manualSessionStartInput.value = formatDateTimeLocal(new Date(session.start));
-  manualSessionEndInput.value = formatDateTimeLocal(new Date(session.end));
-  manualSessionNoteInput.value = session.note || "";
-
-  saveManualSessionButton.textContent = "Save Changes";
-  manualSessionForm.hidden = false;
-  manualSessionForm.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (possibleParents.some(task => task.id === selectedParentId)) {
+    taskParentInput.value = selectedParentId;
+  }
 }
 
-async function deleteSession(sessionId) {
+function openTaskEditor(taskId) {
+  const task = tasks.find(task => task.id === taskId);
+  if (!task) return;
+
+  editingTaskId = task.id;
+  taskProjectInput.value = task.projectId;
+  renderTaskParentOptions(task.parentTaskId || "");
+  nameInput.value = task.name;
+  goalInput.value = task.targetHours ?? "";
+  addTaskButton.textContent = "Save Changes";
+  nameInput.focus();
+  nameInput.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function resetTaskForm() {
+  editingTaskId = null;
+  nameInput.value = "";
+  goalInput.value = "";
+  addTaskButton.textContent = "Add Task";
+
+  const generalProject = projects.find(project => !project.archived && project.name.trim().toLowerCase() === "general");
+
+  if (generalProject) taskProjectInput.value = generalProject.id;
+
+  renderTaskParentOptions();
+}
+
+async function addTask() {
   if (!currentUser) return;
 
-  const session = sessions.find(session => session.id === sessionId);
-  if (!session) return;
+  const name = nameInput.value.trim();
+  const generalProject = projects.find(project => !project.archived && project.name.trim().toLowerCase() === "general");
+  const projectId = taskProjectInput.value || generalProject?.id;
+  const targetHours = goalInput.value === "" ? null : Number(goalInput.value);
+  const parentTaskId = taskParentInput.value || null;
 
-  const confirmed = window.confirm(
-    `Delete this session for "${session.taskName}"?\n\n` +
-    `${new Date(session.start).toLocaleString()} — ${formatDuration(session.durationSeconds)}\n\n` +
-    `This cannot be undone.`
-  );
+  if (!name) {
+    alert("Enter a task name.");
+    return;
+  }
 
-  if (!confirmed) return;
+  if (!projectId) {
+    alert('Create a project named "General" first.');
+    return;
+  }
 
+  if (targetHours !== null && (!Number.isFinite(targetHours) || targetHours < 0)) {
+    alert("Enter a valid target time.");
+    return;
+  }
+  const parentTask = parentTaskId ? tasks.find(task => task.id === parentTaskId) : null;
+
+  if (parentTaskId && (!parentTask || parentTask.projectId !== projectId)) {
+    alert("Select a valid parent task.");
+    return;
+  }
   try {
-    await deleteSessionFromFirestore(currentUser.uid, sessionId);
-    sessions = normalizeSessions(await getSessions(currentUser.uid));
+    addTaskButton.disabled = true;
+
+    if (editingTaskId) {
+      const existingTask = tasks.find(task => task.id === editingTaskId);
+    
+      if (state.runningTaskId === editingTaskId && existingTask?.projectId !== projectId) {
+        alert("Stop the running timer before moving this task to another project.");
+        return;
+      }
+    
+      const existingSubtasks = tasks.filter(task => task.parentTaskId === editingTaskId);
+    
+      if (parentTaskId && existingSubtasks.length > 0) {
+        alert("A task with subtasks cannot itself be converted into a subtask.");
+        return;
+      }
+    
+      await updateTaskInFirestore(currentUser.uid, editingTaskId, {
+        name,
+        projectId,
+        parentTaskId,
+        targetHours
+      });
+    } else {
+      await createTask(currentUser.uid, projectId, {
+        name,
+        description: "",
+        targetHours,
+        parentTaskId
+      });
+    }
+
+    tasks = await getTasks(currentUser.uid);
+    resetTaskForm();
+    renderTaskParentOptions();
+    renderProjects();
+    renderManualSessionProjectOptions();
     render();
   } catch (error) {
-    console.error("Failed to delete session:", error);
-    alert("The session could not be deleted.");
+    console.error(editingTaskId ? "Failed to update task:" : "Failed to create task:", error);
+    alert(editingTaskId ? "The task could not be updated." : "The task could not be created.");
+  } finally {
+    addTaskButton.disabled = false;
   }
+}
+
+async function completeTask(id) {
+  if (!currentUser) return;
+
+  const task = tasks.find(task => task.id === id);
+  if (!task) return;
+
+  if (state.runningTaskId === id) {
+    await stopTask();
+    if (state.runningTaskId === id) return;
+  }
+
+  try {
+    await completeTaskInFirestore(currentUser.uid, id);
+    tasks = await getTasks(currentUser.uid);
+    renderProjects();
+    render();
+  } catch (error) {
+    console.error("Failed to complete task:", error);
+    alert("The task could not be completed.");
+  }
+}
+
+async function restoreTask(id) {
+  if (!currentUser) return;
+
+  const task = tasks.find(task => task.id === id);
+  if (!task) return;
+
+  try {
+    await reopenTask(currentUser.uid, id);
+    tasks = await getTasks(currentUser.uid);
+    renderProjects();
+    render();
+  } catch (error) {
+    console.error("Failed to restore task:", error);
+    alert("The task could not be restored.");
+  }
+}
+
+async function archiveTask(taskId) {
+  if (!currentUser) return;
+
+  const task = tasks.find(task => task.id === taskId);
+  if (!task) return;
+
+  if (state.runningTaskId === taskId) {
+    alert("Stop the running timer before archiving this task.");
+    return;
+  }
+
+  if (!window.confirm(`Archive "${task.name}"? Its tracked time and session history will be preserved.`)) return;
+
+  try {
+    await archiveTaskInFirestore(currentUser.uid, taskId);
+    tasks = await getTasks(currentUser.uid);
+    renderProjects();
+    renderManualSessionProjectOptions();
+    render();
+  } catch (error) {
+    console.error("Failed to archive task:", error);
+    alert("The task could not be archived.");
+  }
+}
+
+async function unarchiveTask(taskId) {
+  if (!currentUser) return;
+
+  try {
+    await restoreArchivedTaskInFirestore(currentUser.uid, taskId);
+    tasks = await getTasks(currentUser.uid);
+    renderProjects();
+    renderManualSessionProjectOptions();
+    render();
+  } catch (error) {
+    console.error("Failed to restore archived task:", error);
+    alert("The task could not be restored.");
+  }
+}
+
+async function deleteTask(id) {
+  if (!currentUser) return;
+
+  const task = tasks.find(task => task.id === id);
+  if (!task) return;
+
+  if (state.runningTaskId === id) {
+    alert("Stop the running timer before deleting this task.");
+    return;
+  }
+
+  const subtasks = tasks.filter(task => task.parentTaskId === id);
+
+  if (subtasks.length > 0) {
+    alert(`This task has ${subtasks.length} subtask${subtasks.length === 1 ? "" : "s"}. Delete or move them before deleting the parent task.`);
+    return;
+  }
+
+  if (!window.confirm(`Delete "${task.name}" and all of its tracked time?`)) return;
+
+  try {
+    await deleteSessionsByTask(currentUser.uid, id);
+    await deleteTaskFromFirestore(currentUser.uid, id);
+
+    tasks = await getTasks(currentUser.uid);
+    sessions = normalizeSessions(await getSessions(currentUser.uid));
+
+    renderTaskParentOptions();
+    renderProjects();
+    render();
+  } catch (error) {
+    console.error("Failed to delete task:", error);
+    alert("The task could not be deleted.");
+  }
+}
+
+function createTaskElement(task, isSubtask = false) {
+  const project = projects.find(project => project.id === task.projectId);
+  const projectLabel = project ? `<div class="task-project"><span style="background:${project.color}"></span>${escapeHTML(project.name)}</div>` : "";
+
+  const seconds = getCurrentSeconds(task);
+  const targetHours = Number(task.targetHours);
+  const hasTarget = Number.isFinite(targetHours) && targetHours > 0;
+  const goalSeconds = hasTarget ? targetHours * 3600 : 0;
+  const percentage = hasTarget ? seconds / goalSeconds * 100 : 0;
+  const differenceHours = hasTarget ? (seconds - goalSeconds) / 3600 : null;
+  const taskElement = document.createElement("div");
+
+  taskElement.className = [
+    "card",
+    "task",
+    isSubtask ? "subtask" : "",
+    state.runningTaskId === task.id ? "running" : "",
+    task.completed ? "completed" : ""
+  ].filter(Boolean).join(" ");
+
+  const timerButton = task.completed
+    ? ""
+    : state.runningTaskId === task.id
+      ? `<button type="button" data-action="stop">Stop</button>`
+      : `<button type="button" data-action="start" data-task-id="${task.id}">Start</button>`;
+
+  const completionButton = task.completed
+    ? `<button type="button" data-action="restore" data-task-id="${task.id}">Restore</button>`
+    : `<button type="button" data-action="complete" data-task-id="${task.id}">Complete</button>`;
+
+  const targetDisplay = hasTarget
+    ? `<div>Target: ${targetHours.toFixed(2)} h</div>`
+    : `<div>Target: None</div>`;
+
+  const progressDisplay = hasTarget
+    ? `<div>${differenceHours >= 0 ? `Overrun: +${differenceHours.toFixed(2)} h` : `Remaining: ${Math.abs(differenceHours).toFixed(2)} h`}</div>
+       <div>${percentage.toFixed(1)}%</div>
+       <div class="progress"><div class="bar" style="width:${Math.min(Math.max(percentage, 0), 100)}%"></div></div>`
+    : `<div>0.0%</div>
+       <div class="progress"><div class="bar" style="width:0%"></div></div>`;
+  const archiveButton = task.archived
+    ? `<button type="button" data-action="unarchive" data-task-id="${task.id}">Restore from Archive</button>`
+    : `<button type="button" data-action="archive" data-task-id="${task.id}">Archive</button>`;
+
+  taskElement.innerHTML = `
+    ${projectLabel}
+    <h3>${escapeHTML(task.name)}</h3>
+    ${targetDisplay}
+    <div>Tracked: ${formatDuration(seconds)}</div>
+    ${progressDisplay}
+    ${task.completedAt ? `<div class="small">Completed: ${task.completedAt.toDate ? task.completedAt.toDate().toLocaleDateString() : new Date(task.completedAt).toLocaleDateString()}</div>` : ""}
+    <br>
+    ${timerButton}
+    ${completionButton}
+    <button type="button" data-action="edit" data-task-id="${task.id}">Edit</button>
+    ${archiveButton}
+    <button type="button" data-action="delete" data-task-id="${task.id}">Delete</button>
+  `;
+
+  return taskElement;
+}
+
+function appendTaskTree(container, parentTask, visibleTasks) {
+  const parentWrapper = document.createElement("div");
+  parentWrapper.className = "task-tree";
+
+  parentWrapper.appendChild(createTaskElement(parentTask));
+
+  const subtasks = visibleTasks
+    .filter(task => task.parentTaskId === parentTask.id)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  if (subtasks.length > 0) {
+    const subtaskContainer = document.createElement("div");
+    subtaskContainer.className = "subtask-list";
+
+    subtasks.forEach(subtask => {
+      subtaskContainer.appendChild(createTaskElement(subtask, true));
+    });
+
+    parentWrapper.appendChild(subtaskContainer);
+  }
+
+  container.appendChild(parentWrapper);
+}
+
+function renderTasks() {
+  activeTasksContainer.innerHTML = "";
+  completedTasksContainer.innerHTML = "";
+
+  const visibleTasks = tasks.filter(task => isTaskVisible(task));
+  const activeTasks = visibleTasks.filter(task => !task.completed);
+  const activeParents = activeTasks.filter(task => !task.parentTaskId);
+
+  activeParents.forEach(parentTask => {
+    appendTaskTree(activeTasksContainer, parentTask, activeTasks);
+  });
+
+  const completedTasks = visibleTasks.filter(task => task.completed);
+  if (completedTasks.length === 0) return;
+
+  const completedByProject = completedTasks.reduce((groups, task) => {
+    const projectId = task.projectId || "unknown";
+    if (!groups[projectId]) groups[projectId] = [];
+    groups[projectId].push(task);
+    return groups;
+  }, {});
+
+  const sortedProjectGroups = Object.entries(completedByProject).sort(([, tasksA], [, tasksB]) => {
+    const newestA = Math.max(...tasksA.map(task => getCompletedTimestamp(task)));
+    const newestB = Math.max(...tasksB.map(task => getCompletedTimestamp(task)));
+    return newestB - newestA;
+  });
+
+  sortedProjectGroups.forEach(([projectId, projectTasks]) => {
+    const project = projects.find(project => project.id === projectId);
+    const group = document.createElement("div");
+    const completedParents = projectTasks.filter(task => !task.parentTaskId);
+
+    group.className = "completed-project-group";
+    group.innerHTML = `
+      <h3 class="completed-project-heading">
+        ${project ? `<span style="background:${project.color}"></span>${escapeHTML(project.name)}` : "Unknown project"}
+      </h3>
+    `;
+
+    completedParents
+      .sort((a, b) => getCompletedTimestamp(b) - getCompletedTimestamp(a))
+      .forEach(parentTask => {
+        appendTaskTree(group, parentTask, projectTasks);
+      });
+
+    completedTasksContainer.appendChild(group);
+  });
+}
+
+function toggleCompleted() {
+  const isHidden = completedTasksContainer.style.display === "none" || completedTasksContainer.style.display === "";
+
+  completedTasksContainer.style.display = isHidden ? "block" : "none";
+  completedTasksHeading.textContent = isHidden ? "Completed Tasks ▲" : "Completed Tasks ▼";
+}
+
+async function handleTaskAction(event) {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+
+  const action = button.dataset.action;
+  const taskId = button.dataset.taskId;
+
+  switch (action) {
+    case "start":
+      await startTask(taskId);
+      break;
+    case "stop":
+      await stopTask();
+      break;
+    case "complete":
+      await completeTask(taskId);
+      break;
+    case "restore":
+      await restoreTask(taskId);
+      break;
+    case "delete":
+      await deleteTask(taskId);
+      break;
+    case "edit":
+      openTaskEditor(taskId);
+      break;
+    case "archive":
+      await archiveTask(taskId);
+      break;
+    case "unarchive":
+      await unarchiveTask(taskId);
+      break;
+    
+  }
+}
+
+// ============================================================================
+// TIMER MANAGEMENT
+// ============================================================================
+function getTaskSessionSeconds(taskId) {
+  return sessions
+    .filter(session => session.taskId === taskId)
+    .reduce((total, session) => total + Number(session.durationSeconds || 0), 0);
+}
+
+function getCurrentSeconds(task) {
+  let seconds = getTaskSessionSeconds(task.id);
+
+  if (state.runningTaskId === task.id && Number.isFinite(Number(state.startTime))) {
+    seconds += Math.max(0, (Date.now() - Number(state.startTime)) / 1000);
+  }
+
+  return seconds;
+}
+
+async function startTask(id) {
+  const task = tasks.find(task => task.id === id);
+  if (!task || task.completed || !currentUser) return;
+
+  if (state.runningTaskId !== null) {
+    await stopTask();
+    if (state.runningTaskId !== null) return;
+  }
+
+  try {
+    await saveTimerState(currentUser.uid, {
+      runningTaskId: task.id,
+      runningProjectId: task.projectId,
+      startTime: Date.now()
+    });
+  } catch (error) {
+    console.error("Failed to start timer:", error);
+    alert("The timer could not be started.");
+  }
+}
+
+async function stopTask() {
+  if (state.runningTaskId === null || state.startTime === null || !currentUser) return;
+
+  const endTime = Date.now();
+  const task = tasks.find(task => task.id === state.runningTaskId);
+
+  if (!task) {
+    console.error("The running task could not be found.");
+    return;
+  }
+
+  const project = projects.find(project => project.id === task.projectId);
+
+  if (!project) {
+    console.error("The running task's project could not be found.");
+    return;
+  }
+
+  try {
+    await createSession(currentUser.uid, {
+      projectId: project.id,
+      taskId: task.id,
+      projectName: project.name,
+      taskName: task.name,
+      start: new Date(state.startTime),
+      end: new Date(endTime),
+      note: "",
+      source: "timer"
+    });
+
+    const clearedState = {
+      runningTaskId: null,
+      runningProjectId: null,
+      startTime: null
+    };
+
+    await saveTimerState(currentUser.uid, clearedState);
+
+    sessions = normalizeSessions(await getSessions(currentUser.uid));
+
+    render();
+  } catch (error) {
+    console.error("Failed to stop timer:", error);
+    alert("The session could not be saved. The timer is still running.");
+  }
+}
+
+// ============================================================================
+// SESSION MANAGEMENT
+// ============================================================================
+function renderManualSessionProjectOptions() {
+  const activeProjects = projects.filter(project => !project.archived);
+
+  manualSessionProjectInput.innerHTML = activeProjects.length
+    ? activeProjects.map(project => `<option value="${project.id}">${escapeHTML(project.name)}</option>`).join("")
+    : `<option value="">No active projects</option>`;
+
+  const generalProject = activeProjects.find(project => project.name.trim().toLowerCase() === "general");
+
+  if (generalProject) manualSessionProjectInput.value = generalProject.id;
+
+  renderManualSessionTaskOptions();
+}
+
+function renderManualSessionTaskOptions() {
+  const projectId = manualSessionProjectInput.value;
+  const projectTasks = tasks.filter(task => task.projectId === projectId && !task.archived);
+
+  manualSessionTaskInput.innerHTML = projectTasks.length
+    ? projectTasks.map(task => `<option value="${task.id}">${escapeHTML(task.name)}</option>`).join("")
+    : `<option value="">No tasks available</option>`;
+
+  manualSessionTaskInput.disabled = projectTasks.length === 0;
+  saveManualSessionButton.disabled = projectTasks.length === 0;
 }
 
 function openManualSessionForm() {
@@ -839,39 +1145,225 @@ async function saveManualSession() {
   }
 }
 
+function editSession(sessionId) {
+  const session = sessions.find(session => session.id === sessionId);
+  if (!session) return;
 
-async function loginWithGoogle() {
+  editingSessionId = session.id;
+
+  renderManualSessionProjectOptions();
+  manualSessionProjectInput.value = session.projectId;
+  renderManualSessionTaskOptions();
+  manualSessionTaskInput.value = session.taskId;
+
+  manualSessionStartInput.value = formatDateTimeLocal(new Date(session.start));
+  manualSessionEndInput.value = formatDateTimeLocal(new Date(session.end));
+  manualSessionNoteInput.value = session.note || "";
+
+  saveManualSessionButton.textContent = "Save Changes";
+  manualSessionForm.hidden = false;
+  manualSessionForm.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function deleteSession(sessionId) {
+  if (!currentUser) return;
+
+  const session = sessions.find(session => session.id === sessionId);
+  if (!session) return;
+
+  const confirmed = window.confirm(
+    `Delete this session for "${session.taskName}"?\n\n` +
+    `${new Date(session.start).toLocaleString()} — ${formatDuration(session.durationSeconds)}\n\n` +
+    `This cannot be undone.`
+  );
+
+  if (!confirmed) return;
+
   try {
-    await signInWithPopup(auth, googleProvider);
+    await deleteSessionFromFirestore(currentUser.uid, sessionId);
+    sessions = normalizeSessions(await getSessions(currentUser.uid));
+    render();
   } catch (error) {
-    console.error("Google sign-in failed:", error);
-    userStatus.textContent = `Sign-in failed: ${error.message}`;
+    console.error("Failed to delete session:", error);
+    alert("The session could not be deleted.");
   }
 }
 
-function formatCalendarDuration(seconds) {
-  seconds = Number(seconds);
+async function handleSessionAction(event) {
+  const button = event.target.closest("button[data-session-action]");
+  if (!button) return;
 
-  if (!Number.isFinite(seconds) || seconds <= 0) return "";
+  const action = button.dataset.sessionAction;
+  const sessionId = button.dataset.sessionId;
 
-  const totalMinutes = Math.round(seconds / 60);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
-  if (hours > 0) return `${hours}h`;
-  return `${minutes}m`;
-}
-
-async function logoutUser() {
-  try {
-    await signOut(auth);
-  } catch (error) {
-    console.error("Sign-out failed:", error);
-    userStatus.textContent = `Sign-out failed: ${error.message}`;
+  switch (action) {
+    case "edit":
+      editSession(sessionId);
+      break;
+    case "delete":
+      await deleteSession(sessionId);
+      break;
   }
 }
 
+// ============================================================================
+// HISTORY AND FILTERS
+// ============================================================================
+function getStartOfToday() {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+function getTodaySessions() {
+  const startOfToday = getStartOfToday();
+  return sessions.filter(session => session.start >= startOfToday);
+}
+
+function getProjectTaskFilteredSessions() {
+  const projectId = historyProjectFilter.value;
+  const taskId = historyTaskFilter.value;
+
+  return sessions.filter(session => {
+    if (projectId && session.projectId !== projectId) return false;
+    if (taskId && session.taskId !== taskId) return false;
+    return true;
+  });
+}
+
+function getFilteredSessions() {
+  const startTime = getLocalDayStart(historyStartDate.value);
+  const endTime = getLocalDayEnd(historyEndDate.value);
+
+  return getProjectTaskFilteredSessions().filter(session => {
+    if (startTime !== null && session.start < startTime) return false;
+    if (endTime !== null && session.start > endTime) return false;
+    return true;
+  }).sort((a, b) => b.start - a.start);
+}
+
+function validateHistoryDateRange() {
+  const startTime = getLocalDayStart(historyStartDate.value);
+  const endTime = getLocalDayEnd(historyEndDate.value);
+
+  if (startTime !== null && endTime !== null && startTime > endTime) {
+    historyEndDate.value = historyStartDate.value;
+  }
+
+  renderFullHistory();
+}
+
+function renderHistoryFilterOptions() {
+  const selectedProjectId = historyProjectFilter.value;
+  const selectedTaskId = historyTaskFilter.value;
+
+  historyProjectFilter.innerHTML = `
+    <option value="">All projects</option>
+    ${projects.map(project => `<option value="${project.id}">${escapeHTML(project.name)}</option>`).join("")}
+  `;
+
+  if (projects.some(project => project.id === selectedProjectId)) {
+    historyProjectFilter.value = selectedProjectId;
+  }
+
+  renderHistoryTaskFilterOptions(selectedTaskId);
+}
+
+function renderHistoryTaskFilterOptions(selectedTaskId = "") {
+  const projectId = historyProjectFilter.value;
+  const matchingTasks = projectId
+    ? tasks.filter(task => task.projectId === projectId)
+    : tasks;
+
+  historyTaskFilter.innerHTML = `
+    <option value="">All tasks</option>
+    ${matchingTasks.map(task => `<option value="${task.id}">${escapeHTML(task.name)}</option>`).join("")}
+  `;
+
+  if (matchingTasks.some(task => task.id === selectedTaskId)) {
+    historyTaskFilter.value = selectedTaskId;
+  }
+}
+
+function renderTodayHistory() {
+  const todaySessions = [...getTodaySessions()].sort((a, b) => b.start - a.start);
+
+  if (todaySessions.length === 0) {
+    todayHistoryContainer.textContent = "No sessions today";
+    return;
+  }
+
+  todayHistoryContainer.innerHTML = todaySessions.map(session => {
+    const startTime = new Date(session.start).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    const endTime = new Date(session.end).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+    return `
+      <div class="history-entry">
+        <div class="session-details">
+          <div class="session-project">${escapeHTML(session.projectName || "Unknown project")}</div>
+          <div class="session-task">${escapeHTML(session.taskName || "Unknown task")}</div>
+          <div class="session-time">${startTime} - ${endTime} · ${formatDuration(session.durationSeconds)}</div>
+        </div>
+
+        <div class="session-actions">
+          <button type="button" data-session-action="edit" data-session-id="${session.id}">Edit</button>
+          <button type="button" data-session-action="delete" data-session-id="${session.id}">Delete</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function renderFullHistory() {
+  const filteredSessions = getFilteredSessions();
+
+  if (filteredSessions.length === 0) {
+    fullHistoryContainer.innerHTML = `<p class="empty-state">No sessions match the selected filters.</p>`;
+    return;
+  }
+
+  fullHistoryContainer.innerHTML = filteredSessions.map(session => {
+    const start = new Date(session.start);
+    const end = new Date(session.end);
+
+    const dateLabel = start.toLocaleDateString([], {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric"
+    });
+
+    const startTime = start.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit"
+    });
+
+    const endTime = end.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit"
+    });
+
+    return `
+      <div class="history-entry">
+        <div class="session-details">
+          <div class="session-project">${escapeHTML(session.projectName || "Unknown project")}</div>
+          <div class="session-task">${escapeHTML(session.taskName || "Unknown task")}</div>
+          <div class="session-time">${dateLabel} · ${startTime}–${endTime} · ${formatDuration(session.durationSeconds)}</div>
+          ${session.note ? `<div class="session-note">${escapeHTML(session.note)}</div>` : ""}
+        </div>
+
+        <div class="session-actions">
+          <button type="button" data-session-action="edit" data-session-id="${session.id}">Edit</button>
+          <button type="button" data-session-action="delete" data-session-id="${session.id}">Delete</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+// ============================================================================
+// CALENDAR
+// ============================================================================
 function renderCalendar() {
   const year = calendarDate.getFullYear();
   const month = calendarDate.getMonth();
@@ -972,415 +1464,9 @@ function handleCalendarAction(event) {
   renderCalendar();
 }
 
-async function loadFirestoreData() {
-  if (!currentUser) return;
-
-  try {
-    projects = await getProjects(currentUser.uid);
-    tasks = await getTasks(currentUser.uid);
-    sessions = normalizeSessions(await getSessions(currentUser.uid));
-    renderProjects();
-    renderProjectOptions();
-    renderManualSessionProjectOptions();
-    renderHistoryFilterOptions();
-
-    if (!reportStartDate.value && !reportEndDate.value) setReportCurrentMonth();
-    console.log("Loaded projects:", projects);
-    console.log("Loaded tasks:", tasks);
-  } catch (error) {
-    console.error("Failed to load Firestore data:", error);
-    throw error;
-  }
-}
-
-onAuthStateChanged(auth, async user => {
-  currentUser = user;
-
-  if (user) {
-    userStatus.textContent = `Signed in as ${user.email}`;
-    loginButton.hidden = true;
-    logoutButton.hidden = false;
-    appContent.hidden = false;
-
-    try {
-      await loadFirestoreData();
-      startTimerStateListener();
-      render();
-    } catch (error) {
-      console.error("Failed to initialize application:", error);
-      userStatus.textContent = "Failed to load tracker data.";
-      appContent.hidden = true;
-    }
-  } else {
-    if (unsubscribeTimerState) {
-      unsubscribeTimerState();
-      unsubscribeTimerState = null;
-    }
-
-    projects = [];
-    tasks = [];
-    sessions = [];
-    state = {
-      runningTaskId: null,
-      runningProjectId: null,
-      startTime: null
-    };
-
-    currentUser = null;
-    userStatus.textContent = "Not signed in";
-    loginButton.hidden = false;
-    logoutButton.hidden = true;
-    appContent.hidden = true;
-  }
-});
-
-function openTaskEditor(taskId) {
-  const task = tasks.find(task => task.id === taskId);
-  if (!task) return;
-
-  editingTaskId = task.id;
-  taskProjectInput.value = task.projectId;
-  renderTaskParentOptions(task.parentTaskId || "");
-  nameInput.value = task.name;
-  goalInput.value = task.targetHours ?? "";
-  addTaskButton.textContent = "Save Changes";
-  nameInput.focus();
-  nameInput.scrollIntoView({ behavior: "smooth", block: "center" });
-}
-
-async function archiveTask(taskId) {
-  if (!currentUser) return;
-
-  const task = tasks.find(task => task.id === taskId);
-  if (!task) return;
-
-  if (state.runningTaskId === taskId) {
-    alert("Stop the running timer before archiving this task.");
-    return;
-  }
-
-  if (!window.confirm(`Archive "${task.name}"? Its tracked time and session history will be preserved.`)) return;
-
-  try {
-    await archiveTaskInFirestore(currentUser.uid, taskId);
-    tasks = await getTasks(currentUser.uid);
-    renderProjects();
-    renderManualSessionProjectOptions();
-    render();
-  } catch (error) {
-    console.error("Failed to archive task:", error);
-    alert("The task could not be archived.");
-  }
-}
-
-async function unarchiveTask(taskId) {
-  if (!currentUser) return;
-
-  try {
-    await restoreArchivedTaskInFirestore(currentUser.uid, taskId);
-    tasks = await getTasks(currentUser.uid);
-    renderProjects();
-    renderManualSessionProjectOptions();
-    render();
-  } catch (error) {
-    console.error("Failed to restore archived task:", error);
-    alert("The task could not be restored.");
-  }
-}
-
-function resetTaskForm() {
-  editingTaskId = null;
-  nameInput.value = "";
-  goalInput.value = "";
-  addTaskButton.textContent = "Add Task";
-
-  const generalProject = projects.find(project => !project.archived && project.name.trim().toLowerCase() === "general");
-
-  if (generalProject) taskProjectInput.value = generalProject.id;
-
-  renderTaskParentOptions();
-}
-
-async function addTask() {
-  if (!currentUser) return;
-
-  const name = nameInput.value.trim();
-  const generalProject = projects.find(project => !project.archived && project.name.trim().toLowerCase() === "general");
-  const projectId = taskProjectInput.value || generalProject?.id;
-  const targetHours = goalInput.value === "" ? null : Number(goalInput.value);
-  const parentTaskId = taskParentInput.value || null;
-
-  if (!name) {
-    alert("Enter a task name.");
-    return;
-  }
-
-  if (!projectId) {
-    alert('Create a project named "General" first.');
-    return;
-  }
-
-  if (targetHours !== null && (!Number.isFinite(targetHours) || targetHours < 0)) {
-    alert("Enter a valid target time.");
-    return;
-  }
-  const parentTask = parentTaskId ? tasks.find(task => task.id === parentTaskId) : null;
-
-  if (parentTaskId && (!parentTask || parentTask.projectId !== projectId)) {
-    alert("Select a valid parent task.");
-    return;
-  }
-  try {
-    addTaskButton.disabled = true;
-
-    if (editingTaskId) {
-      const existingTask = tasks.find(task => task.id === editingTaskId);
-    
-      if (state.runningTaskId === editingTaskId && existingTask?.projectId !== projectId) {
-        alert("Stop the running timer before moving this task to another project.");
-        return;
-      }
-    
-      const existingSubtasks = tasks.filter(task => task.parentTaskId === editingTaskId);
-    
-      if (parentTaskId && existingSubtasks.length > 0) {
-        alert("A task with subtasks cannot itself be converted into a subtask.");
-        return;
-      }
-    
-      await updateTaskInFirestore(currentUser.uid, editingTaskId, {
-        name,
-        projectId,
-        parentTaskId,
-        targetHours
-      });
-    } else {
-      await createTask(currentUser.uid, projectId, {
-        name,
-        description: "",
-        targetHours,
-        parentTaskId
-      });
-    }
-
-    tasks = await getTasks(currentUser.uid);
-    resetTaskForm();
-    renderTaskParentOptions();
-    renderProjects();
-    renderManualSessionProjectOptions();
-    render();
-  } catch (error) {
-    console.error(editingTaskId ? "Failed to update task:" : "Failed to create task:", error);
-    alert(editingTaskId ? "The task could not be updated." : "The task could not be created.");
-  } finally {
-    addTaskButton.disabled = false;
-  }
-}
-
-async function deleteTask(id) {
-  if (!currentUser) return;
-
-  const task = tasks.find(task => task.id === id);
-  if (!task) return;
-
-  if (state.runningTaskId === id) {
-    alert("Stop the running timer before deleting this task.");
-    return;
-  }
-
-  const subtasks = tasks.filter(task => task.parentTaskId === id);
-
-  if (subtasks.length > 0) {
-    alert(`This task has ${subtasks.length} subtask${subtasks.length === 1 ? "" : "s"}. Delete or move them before deleting the parent task.`);
-    return;
-  }
-
-  if (!window.confirm(`Delete "${task.name}" and all of its tracked time?`)) return;
-
-  try {
-    await deleteSessionsByTask(currentUser.uid, id);
-    await deleteTaskFromFirestore(currentUser.uid, id);
-
-    tasks = await getTasks(currentUser.uid);
-    sessions = normalizeSessions(await getSessions(currentUser.uid));
-
-    renderTaskParentOptions();
-    renderProjects();
-    render();
-  } catch (error) {
-    console.error("Failed to delete task:", error);
-    alert("The task could not be deleted.");
-  }
-}
-
-async function completeTask(id) {
-  if (!currentUser) return;
-
-  const task = tasks.find(task => task.id === id);
-  if (!task) return;
-
-  if (state.runningTaskId === id) {
-    await stopTask();
-    if (state.runningTaskId === id) return;
-  }
-
-  try {
-    await completeTaskInFirestore(currentUser.uid, id);
-    tasks = await getTasks(currentUser.uid);
-    renderProjects();
-    render();
-  } catch (error) {
-    console.error("Failed to complete task:", error);
-    alert("The task could not be completed.");
-  }
-}
-
-async function restoreTask(id) {
-  if (!currentUser) return;
-
-  const task = tasks.find(task => task.id === id);
-  if (!task) return;
-
-  try {
-    await reopenTask(currentUser.uid, id);
-    tasks = await getTasks(currentUser.uid);
-    renderProjects();
-    render();
-  } catch (error) {
-    console.error("Failed to restore task:", error);
-    alert("The task could not be restored.");
-  }
-}
-
-function toggleCompleted() {
-  const isHidden = completedTasksContainer.style.display === "none" || completedTasksContainer.style.display === "";
-
-  completedTasksContainer.style.display = isHidden ? "block" : "none";
-  completedTasksHeading.textContent = isHidden ? "Completed Tasks ▲" : "Completed Tasks ▼";
-}
-
-async function startTask(id) {
-  const task = tasks.find(task => task.id === id);
-  if (!task || task.completed || !currentUser) return;
-
-  if (state.runningTaskId !== null) {
-    await stopTask();
-    if (state.runningTaskId !== null) return;
-  }
-
-  try {
-    await saveTimerState(currentUser.uid, {
-      runningTaskId: task.id,
-      runningProjectId: task.projectId,
-      startTime: Date.now()
-    });
-  } catch (error) {
-    console.error("Failed to start timer:", error);
-    alert("The timer could not be started.");
-  }
-}
-
-async function stopTask() {
-  if (state.runningTaskId === null || state.startTime === null || !currentUser) return;
-
-  const endTime = Date.now();
-  const task = tasks.find(task => task.id === state.runningTaskId);
-
-  if (!task) {
-    console.error("The running task could not be found.");
-    return;
-  }
-
-  const project = projects.find(project => project.id === task.projectId);
-
-  if (!project) {
-    console.error("The running task's project could not be found.");
-    return;
-  }
-
-  try {
-    await createSession(currentUser.uid, {
-      projectId: project.id,
-      taskId: task.id,
-      projectName: project.name,
-      taskName: task.name,
-      start: new Date(state.startTime),
-      end: new Date(endTime),
-      note: "",
-      source: "timer"
-    });
-
-    const clearedState = {
-      runningTaskId: null,
-      runningProjectId: null,
-      startTime: null
-    };
-
-    await saveTimerState(currentUser.uid, clearedState);
-
-    sessions = normalizeSessions(await getSessions(currentUser.uid));
-
-    render();
-  } catch (error) {
-    console.error("Failed to stop timer:", error);
-    alert("The session could not be saved. The timer is still running.");
-  }
-}
-
-function formatDuration(seconds) {
-  seconds = Number(seconds);
-
-  if (!Number.isFinite(seconds) || seconds < 0) seconds = 0;
-
-  const totalMinutes = Math.floor(seconds / 60);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  return `${hours}h ${minutes}m`;
-}
-function getTaskSessionSeconds(taskId) {
-  return sessions
-    .filter(session => session.taskId === taskId)
-    .reduce((total, session) => total + Number(session.durationSeconds || 0), 0);
-}
-
-function getCurrentSeconds(task) {
-  let seconds = getTaskSessionSeconds(task.id);
-
-  if (state.runningTaskId === task.id && Number.isFinite(Number(state.startTime))) {
-    seconds += Math.max(0, (Date.now() - Number(state.startTime)) / 1000);
-  }
-
-  return seconds;
-}
-
-function getStartOfToday() {
-  const date = new Date();
-  date.setHours(0, 0, 0, 0);
-  return date.getTime();
-}
-
-function getTodaySessions() {
-  const startOfToday = getStartOfToday();
-  return sessions.filter(session => session.start >= startOfToday);
-}
-function normalizeSessions(sessionDocuments) {
-  return sessionDocuments.map(session => ({
-    ...session,
-    start: session.start?.toMillis ? session.start.toMillis() : Number(session.start),
-    end: session.end?.toMillis ? session.end.toMillis() : Number(session.end),
-    durationSeconds: Number(session.durationSeconds || 0)
-  }));
-}
-function escapeHTML(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
+// ============================================================================
+// DASHBOARD AND CHARTS
+// ============================================================================
 function renderDashboard() {
   const today = getTodaySessions();
   const todayHours = today.reduce((sum, session) => sum + session.durationSeconds, 0) / 3600;
@@ -1399,84 +1485,6 @@ function renderDashboard() {
     <div class="card"><b>Running</b><br>${runningTask ? escapeHTML(runningTask.name) : "None"}</div>
   `;
 }
-
-function renderTodayHistory() {
-  const todaySessions = [...getTodaySessions()].sort((a, b) => b.start - a.start);
-
-  if (todaySessions.length === 0) {
-    todayHistoryContainer.textContent = "No sessions today";
-    return;
-  }
-
-  todayHistoryContainer.innerHTML = todaySessions.map(session => {
-    const startTime = new Date(session.start).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-    const endTime = new Date(session.end).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-
-    return `
-      <div class="history-entry">
-        <div class="session-details">
-          <div class="session-project">${escapeHTML(session.projectName || "Unknown project")}</div>
-          <div class="session-task">${escapeHTML(session.taskName || "Unknown task")}</div>
-          <div class="session-time">${startTime} - ${endTime} · ${formatDuration(session.durationSeconds)}</div>
-        </div>
-
-        <div class="session-actions">
-          <button type="button" data-session-action="edit" data-session-id="${session.id}">Edit</button>
-          <button type="button" data-session-action="delete" data-session-id="${session.id}">Delete</button>
-        </div>
-      </div>
-    `;
-  }).join("");
-}
-
-function renderFullHistory() {
-  const filteredSessions = getFilteredSessions();
-
-  if (filteredSessions.length === 0) {
-    fullHistoryContainer.innerHTML = `<p class="empty-state">No sessions match the selected filters.</p>`;
-    return;
-  }
-
-  fullHistoryContainer.innerHTML = filteredSessions.map(session => {
-    const start = new Date(session.start);
-    const end = new Date(session.end);
-
-    const dateLabel = start.toLocaleDateString([], {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      year: "numeric"
-    });
-
-    const startTime = start.toLocaleTimeString([], {
-      hour: "numeric",
-      minute: "2-digit"
-    });
-
-    const endTime = end.toLocaleTimeString([], {
-      hour: "numeric",
-      minute: "2-digit"
-    });
-
-    return `
-      <div class="history-entry">
-        <div class="session-details">
-          <div class="session-project">${escapeHTML(session.projectName || "Unknown project")}</div>
-          <div class="session-task">${escapeHTML(session.taskName || "Unknown task")}</div>
-          <div class="session-time">${dateLabel} · ${startTime}–${endTime} · ${formatDuration(session.durationSeconds)}</div>
-          ${session.note ? `<div class="session-note">${escapeHTML(session.note)}</div>` : ""}
-        </div>
-
-        <div class="session-actions">
-          <button type="button" data-session-action="edit" data-session-id="${session.id}">Edit</button>
-          <button type="button" data-session-action="delete" data-session-id="${session.id}">Delete</button>
-        </div>
-      </div>
-    `;
-  }).join("");
-}
-
-
 
 function renderPie() {
   const totals = {};
@@ -1561,142 +1569,187 @@ function renderWeekly() {
   });
 }
 
-function createTaskElement(task, isSubtask = false) {
-  const project = projects.find(project => project.id === task.projectId);
-  const projectLabel = project ? `<div class="task-project"><span style="background:${project.color}"></span>${escapeHTML(project.name)}</div>` : "";
+// ============================================================================
+// REPORTS
+// ============================================================================
+function setReportCurrentMonth() {
+  const now = new Date();
+  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
-  const seconds = getCurrentSeconds(task);
-  const targetHours = Number(task.targetHours);
-  const hasTarget = Number.isFinite(targetHours) && targetHours > 0;
-  const goalSeconds = hasTarget ? targetHours * 3600 : 0;
-  const percentage = hasTarget ? seconds / goalSeconds * 100 : 0;
-  const differenceHours = hasTarget ? (seconds - goalSeconds) / 3600 : null;
-  const taskElement = document.createElement("div");
-
-  taskElement.className = [
-    "card",
-    "task",
-    isSubtask ? "subtask" : "",
-    state.runningTaskId === task.id ? "running" : "",
-    task.completed ? "completed" : ""
-  ].filter(Boolean).join(" ");
-
-  const timerButton = task.completed
-    ? ""
-    : state.runningTaskId === task.id
-      ? `<button type="button" data-action="stop">Stop</button>`
-      : `<button type="button" data-action="start" data-task-id="${task.id}">Start</button>`;
-
-  const completionButton = task.completed
-    ? `<button type="button" data-action="restore" data-task-id="${task.id}">Restore</button>`
-    : `<button type="button" data-action="complete" data-task-id="${task.id}">Complete</button>`;
-
-  const targetDisplay = hasTarget
-    ? `<div>Target: ${targetHours.toFixed(2)} h</div>`
-    : `<div>Target: None</div>`;
-
-  const progressDisplay = hasTarget
-    ? `<div>${differenceHours >= 0 ? `Overrun: +${differenceHours.toFixed(2)} h` : `Remaining: ${Math.abs(differenceHours).toFixed(2)} h`}</div>
-       <div>${percentage.toFixed(1)}%</div>
-       <div class="progress"><div class="bar" style="width:${Math.min(Math.max(percentage, 0), 100)}%"></div></div>`
-    : `<div>0.0%</div>
-       <div class="progress"><div class="bar" style="width:0%"></div></div>`;
-  const archiveButton = task.archived
-    ? `<button type="button" data-action="unarchive" data-task-id="${task.id}">Restore from Archive</button>`
-    : `<button type="button" data-action="archive" data-task-id="${task.id}">Archive</button>`;
-
-  taskElement.innerHTML = `
-    ${projectLabel}
-    <h3>${escapeHTML(task.name)}</h3>
-    ${targetDisplay}
-    <div>Tracked: ${formatDuration(seconds)}</div>
-    ${progressDisplay}
-    ${task.completedAt ? `<div class="small">Completed: ${task.completedAt.toDate ? task.completedAt.toDate().toLocaleDateString() : new Date(task.completedAt).toLocaleDateString()}</div>` : ""}
-    <br>
-    ${timerButton}
-    ${completionButton}
-    <button type="button" data-action="edit" data-task-id="${task.id}">Edit</button>
-    <button type="button" data-action="delete" data-task-id="${task.id}">Delete</button>
-    ${archiveButton}
-    <button type="button" data-action="delete" data-task-id="${task.id}">Delete</button>
-  `;
-
-  return taskElement;
+  reportStartDate.value = getLocalDateKey(firstDay);
+  reportEndDate.value = getLocalDateKey(lastDay);
 }
 
-function appendTaskTree(container, parentTask, visibleTasks) {
-  const parentWrapper = document.createElement("div");
-  parentWrapper.className = "task-tree";
+function getReportSessions() {
+  const startTime = getLocalDayStart(reportStartDate.value);
+  const endTime = getLocalDayEnd(reportEndDate.value);
 
-  parentWrapper.appendChild(createTaskElement(parentTask));
+  return sessions.filter(session => {
+    if (startTime !== null && session.start < startTime) return false;
+    if (endTime !== null && session.start > endTime) return false;
+    return true;
+  });
+}
 
-  const subtasks = visibleTasks
-    .filter(task => task.parentTaskId === parentTask.id)
-    .sort((a, b) => a.name.localeCompare(b.name));
+function getCompletedTasksForReport() {
+  const startTime = getLocalDayStart(reportStartDate.value);
+  const endTime = getLocalDayEnd(reportEndDate.value);
 
-  if (subtasks.length > 0) {
-    const subtaskContainer = document.createElement("div");
-    subtaskContainer.className = "subtask-list";
+  return tasks.filter(task => {
+    if (!task.completed || !task.completedAt) return false;
 
-    subtasks.forEach(subtask => {
-      subtaskContainer.appendChild(createTaskElement(subtask, true));
-    });
+    const completedTime = getTimestampMillis(task.completedAt);
+    if (completedTime === null) return false;
+    if (startTime !== null && completedTime < startTime) return false;
+    if (endTime !== null && completedTime > endTime) return false;
 
-    parentWrapper.appendChild(subtaskContainer);
+    return true;
+  });
+}
+
+function getReportProjectTotals(reportSessions) {
+  const totals = {};
+
+  reportSessions.forEach(session => {
+    const projectId = session.projectId || "unknown";
+
+    if (!totals[projectId]) {
+      const project = projects.find(project => project.id === projectId);
+
+      totals[projectId] = {
+        projectId,
+        name: project?.name || session.projectName || "Unknown project",
+        color: project?.color || "#777777",
+        seconds: 0
+      };
+    }
+
+    totals[projectId].seconds += Number(session.durationSeconds || 0);
+  });
+
+  return Object.values(totals).sort((a, b) => b.seconds - a.seconds);
+}
+
+function getReportDayCount(reportSessions) {
+  const startTime = getLocalDayStart(reportStartDate.value);
+  const endTime = getLocalDayEnd(reportEndDate.value);
+
+  if (startTime !== null && endTime !== null) {
+    return Math.max(1, Math.round((endTime - startTime) / 86400000));
   }
 
-  container.appendChild(parentWrapper);
-}
-function renderTasks() {
-  activeTasksContainer.innerHTML = "";
-  completedTasksContainer.innerHTML = "";
+  if (reportSessions.length === 0) return 1;
 
-  const visibleTasks = tasks.filter(task => isTaskVisible(task));
-  const activeTasks = visibleTasks.filter(task => !task.completed);
-  const activeParents = activeTasks.filter(task => !task.parentTaskId);
+  const earliest = Math.min(...reportSessions.map(session => session.start));
+  const latest = Math.max(...reportSessions.map(session => session.start));
 
-  activeParents.forEach(parentTask => {
-    appendTaskTree(activeTasksContainer, parentTask, activeTasks);
-  });
-
-  const completedTasks = visibleTasks.filter(task => task.completed);
-  if (completedTasks.length === 0) return;
-
-  const completedByProject = completedTasks.reduce((groups, task) => {
-    const projectId = task.projectId || "unknown";
-    if (!groups[projectId]) groups[projectId] = [];
-    groups[projectId].push(task);
-    return groups;
-  }, {});
-
-  const sortedProjectGroups = Object.entries(completedByProject).sort(([, tasksA], [, tasksB]) => {
-    const newestA = Math.max(...tasksA.map(task => getCompletedTimestamp(task)));
-    const newestB = Math.max(...tasksB.map(task => getCompletedTimestamp(task)));
-    return newestB - newestA;
-  });
-
-  sortedProjectGroups.forEach(([projectId, projectTasks]) => {
-    const project = projects.find(project => project.id === projectId);
-    const group = document.createElement("div");
-    const completedParents = projectTasks.filter(task => !task.parentTaskId);
-
-    group.className = "completed-project-group";
-    group.innerHTML = `
-      <h3 class="completed-project-heading">
-        ${project ? `<span style="background:${project.color}"></span>${escapeHTML(project.name)}` : "Unknown project"}
-      </h3>
-    `;
-
-    completedParents
-      .sort((a, b) => getCompletedTimestamp(b) - getCompletedTimestamp(a))
-      .forEach(parentTask => {
-        appendTaskTree(group, parentTask, projectTasks);
-      });
-
-    completedTasksContainer.appendChild(group);
-  });
+  return Math.max(1, Math.floor((latest - earliest) / 86400000) + 1);
 }
 
+function renderReportSummary(reportSessions, projectTotals) {
+  const totalSeconds = reportSessions.reduce((sum, session) => sum + Number(session.durationSeconds || 0), 0);
+  const totalHours = totalSeconds / 3600;
+  const dayCount = getReportDayCount(reportSessions);
+  const averageHours = totalHours / dayCount;
+  const topProject = projectTotals[0];
+  const completedCount = getCompletedTasksForReport().length;
+
+  reportTotalHours.textContent = `${totalHours.toFixed(2)} h`;
+  reportTopProject.textContent = topProject?.name || "None";
+  reportDailyAverage.textContent = `${averageHours.toFixed(2)} h`;
+  reportCompletedTasks.textContent = completedCount;
+}
+
+function renderReportProjectChart(projectTotals) {
+  if (reportProjectChart) reportProjectChart.destroy();
+
+  reportProjectChart = new Chart(reportProjectChartCanvas, {
+    type: "bar",
+    data: {
+      labels: projectTotals.map(project => project.name),
+      datasets: [{
+        label: "Tracked Hours",
+        data: projectTotals.map(project => project.seconds / 3600),
+        backgroundColor: projectTotals.map(project => project.color)
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: "y",
+      scales: {
+        x: {
+          beginAtZero: true,
+          title: {
+            display: true,
+            text: "Hours"
+          }
+        }
+      },
+      plugins: {
+        legend: {
+          display: false
+        }
+      }
+    }
+  });
+}
+
+function renderReportEstimateChart(projectTotals) {
+  const estimatedProjects = projects.filter(project => {
+    const estimate = Number(project.estimatedHours);
+    return Number.isFinite(estimate) && estimate > 0;
+  });
+
+  if (reportEstimateChart) reportEstimateChart.destroy();
+
+  reportEstimateChart = new Chart(reportEstimateChartCanvas, {
+    type: "bar",
+    data: {
+      labels: estimatedProjects.map(project => project.name),
+      datasets: [
+        {
+          label: "Estimated Hours",
+          data: estimatedProjects.map(project => Number(project.estimatedHours))
+        },
+        {
+          label: "Tracked Hours",
+          data: estimatedProjects.map(project => {
+            const total = projectTotals.find(total => total.projectId === project.id);
+            return total ? total.seconds / 3600 : 0;
+          })
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: {
+          beginAtZero: true,
+          title: {
+            display: true,
+            text: "Hours"
+          }
+        }
+      }
+    }
+  });
+}
+
+function renderReports() {
+  const reportSessions = getReportSessions();
+  const projectTotals = getReportProjectTotals(reportSessions);
+
+  renderReportSummary(reportSessions, projectTotals);
+  renderReportProjectChart(projectTotals);
+  renderReportEstimateChart(projectTotals);
+}
+
+// ============================================================================
+// EXPORT
+// ============================================================================
 function exportCSV() {
   let csv = "Task,Start,End,Hours\n";
 
@@ -1716,42 +1769,9 @@ function exportCSV() {
   URL.revokeObjectURL(objectURL);
 }
 
-async function handleTaskAction(event) {
-  const button = event.target.closest("button[data-action]");
-  if (!button) return;
-
-  const action = button.dataset.action;
-  const taskId = button.dataset.taskId;
-
-  switch (action) {
-    case "start":
-      await startTask(taskId);
-      break;
-    case "stop":
-      await stopTask();
-      break;
-    case "complete":
-      await completeTask(taskId);
-      break;
-    case "restore":
-      await restoreTask(taskId);
-      break;
-    case "delete":
-      await deleteTask(taskId);
-      break;
-    case "edit":
-      openTaskEditor(taskId);
-      break;
-    case "archive":
-      await archiveTask(taskId);
-      break;
-    case "unarchive":
-      await unarchiveTask(taskId);
-      break;
-    
-  }
-}
-
+// ============================================================================
+// MAIN RENDERING
+// ============================================================================
 function render() {
   renderDashboard();
   renderTasks();
@@ -1763,65 +1783,104 @@ function render() {
   renderReports();
 }
 
-addTaskButton.addEventListener("click", addTask);
-exportCSVButton.addEventListener("click", exportCSV);
-completedTasksHeading.addEventListener("click", toggleCompleted);
-activeTasksContainer.addEventListener("click", handleTaskAction);
-completedTasksContainer.addEventListener("click", handleTaskAction);
+// ============================================================================
+// AUTH STATE OBSERVER
+// ============================================================================
+onAuthStateChanged(auth, async user => {
+  currentUser = user;
+
+  if (user) {
+    userStatus.textContent = `Signed in as ${user.email}`;
+    loginButton.hidden = true;
+    logoutButton.hidden = false;
+    appContent.hidden = false;
+
+    try {
+      await loadFirestoreData();
+      startTimerStateListener();
+      render();
+    } catch (error) {
+      console.error("Failed to initialize application:", error);
+      userStatus.textContent = "Failed to load tracker data.";
+      appContent.hidden = true;
+    }
+  } else {
+    if (unsubscribeTimerState) {
+      unsubscribeTimerState();
+      unsubscribeTimerState = null;
+    }
+
+    projects = [];
+    tasks = [];
+    sessions = [];
+    state = {
+      runningTaskId: null,
+      runningProjectId: null,
+      startTime: null
+    };
+
+    currentUser = null;
+    userStatus.textContent = "Not signed in";
+    loginButton.hidden = false;
+    logoutButton.hidden = true;
+    appContent.hidden = true;
+  }
+});
+
+// ============================================================================
+// EVENT LISTENERS
+// ============================================================================
+// Authentication
 loginButton.addEventListener("click", loginWithGoogle);
 logoutButton.addEventListener("click", logoutUser);
 
-nameInput.addEventListener("keydown", event => {
-  if (event.key === "Enter") addTask();
-});
-
-goalInput.addEventListener("keydown", event => {
-  if (event.key === "Enter") addTask();
-});
-
-setInterval(() => {
-    if (!currentUser) return;
-    renderDashboard();
-    renderTasks();
-  }, 1000);
-
-const navButtons = document.querySelectorAll(".nav-button");
-const appViews = document.querySelectorAll(".app-view");
-
+// Navigation
 navButtons.forEach(button => {
   button.addEventListener("click", () => {
     navButtons.forEach(item => item.classList.remove("active"));
     appViews.forEach(view => view.hidden = true);
-
     button.classList.add("active");
     document.getElementById(button.dataset.view).hidden = false;
   });
 });
+
+// Projects
 newProjectButton.addEventListener("click", () => openProjectForm());
 cancelProjectButton.addEventListener("click", closeProjectForm);
 saveProjectButton.addEventListener("click", saveProject);
 projectsContainer.addEventListener("click", handleProjectAction);
+projectsContainer.addEventListener("click", handleTaskAction);
 projectNameInput.addEventListener("keydown", event => {
   if (event.key === "Enter") saveProject();
 });
+
+// Tasks
+addTaskButton.addEventListener("click", addTask);
+activeTasksContainer.addEventListener("click", handleTaskAction);
+completedTasksContainer.addEventListener("click", handleTaskAction);
+completedTasksHeading.addEventListener("click", toggleCompleted);
+taskProjectInput.addEventListener("change", () => renderTaskParentOptions());
+nameInput.addEventListener("keydown", event => {
+  if (event.key === "Enter") addTask();
+});
+goalInput.addEventListener("keydown", event => {
+  if (event.key === "Enter") addTask();
+});
+
+// Sessions
 addManualSessionButton.addEventListener("click", openManualSessionForm);
 cancelManualSessionButton.addEventListener("click", closeManualSessionForm);
 saveManualSessionButton.addEventListener("click", saveManualSession);
 manualSessionProjectInput.addEventListener("change", renderManualSessionTaskOptions);
-
 todayHistoryContainer.addEventListener("click", handleSessionAction);
-historyContainer.addEventListener("click", handleSessionAction);
+fullHistoryContainer.addEventListener("click", handleSessionAction);
 
-
-projectsContainer.addEventListener("click", handleTaskAction);
-
-
+// History filters
 historyProjectFilter.addEventListener("change", () => {
   renderHistoryTaskFilterOptions();
   renderFullHistory();
   renderCalendar();
 });
-
 historyTaskFilter.addEventListener("change", () => {
   renderFullHistory();
   renderCalendar();
@@ -1830,27 +1889,33 @@ historyStartDate.addEventListener("change", () => {
   validateHistoryDateRange();
   renderCalendar();
 });
-
 historyEndDate.addEventListener("change", () => {
   validateHistoryDateRange();
   renderCalendar();
 });
-fullHistoryContainer.addEventListener("click", handleSessionAction);
 
+// Calendar
 calendarContainer.addEventListener("click", handleCalendarAction);
 
+// Reports
 reportStartDate.addEventListener("change", renderReports);
 reportEndDate.addEventListener("change", renderReports);
-
 reportCurrentMonthButton.addEventListener("click", () => {
   setReportCurrentMonth();
   renderReports();
 });
-
 reportAllTimeButton.addEventListener("click", () => {
   reportStartDate.value = "";
   reportEndDate.value = "";
   renderReports();
 });
 
-taskProjectInput.addEventListener("change", () => renderTaskParentOptions());
+// Export
+exportCSVButton.addEventListener("click", exportCSV);
+
+// Keep running timers visually current.
+setInterval(() => {
+  if (!currentUser) return;
+  renderDashboard();
+  renderTasks();
+}, 1000);
