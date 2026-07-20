@@ -1,7 +1,7 @@
 import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from "./firebase.js";
 import {  createProject, getProjects, deleteProjectAndData, updateProject as updateProjectInFirestore, archiveProject as archiveProjectInFirestore, restoreProject as restoreProjectInFirestore,
           createTask, getTasks, completeTask as completeTaskInFirestore, reopenTask, deleteTask as deleteTaskFromFirestore, deleteSessionsByTask,
-          getSessions, createSession, deleteSession as deleteSessionFromFirestore,
+          getSessions, createSession, deleteSession as deleteSessionFromFirestore, updateSession as updateSessionInFirestore,
           saveTimerState, listenToTimerState } from "./database.js";
 
 let projects = [];
@@ -18,6 +18,7 @@ let weeklyChart = null;
 let currentUser = null;
 let unsubscribeTimerState = null;
 let editingProjectId = null;
+let editingSessionId = null;
 
 const nameInput = document.getElementById("name");
 const goalInput = document.getElementById("goal");
@@ -369,9 +370,37 @@ async function handleSessionAction(event) {
   const button = event.target.closest("button[data-session-action]");
   if (!button) return;
 
-  if (button.dataset.sessionAction === "delete") {
-    await deleteSession(button.dataset.sessionId);
+  const action = button.dataset.sessionAction;
+  const sessionId = button.dataset.sessionId;
+
+  switch (action) {
+    case "edit":
+      editSession(sessionId);
+      break;
+    case "delete":
+      await deleteSession(sessionId);
+      break;
   }
+}
+
+function editSession(sessionId) {
+  const session = sessions.find(session => session.id === sessionId);
+  if (!session) return;
+
+  editingSessionId = session.id;
+
+  renderManualSessionProjectOptions();
+  manualSessionProjectInput.value = session.projectId;
+  renderManualSessionTaskOptions();
+  manualSessionTaskInput.value = session.taskId;
+
+  manualSessionStartInput.value = formatDateTimeLocal(new Date(session.start));
+  manualSessionEndInput.value = formatDateTimeLocal(new Date(session.end));
+  manualSessionNoteInput.value = session.note || "";
+
+  saveManualSessionButton.textContent = "Save Changes";
+  manualSessionForm.hidden = false;
+  manualSessionForm.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 async function deleteSession(sessionId) {
@@ -399,6 +428,7 @@ async function deleteSession(sessionId) {
 }
 
 function openManualSessionForm() {
+  editingSessionId = null;
   renderManualSessionProjectOptions();
 
   const end = new Date();
@@ -407,14 +437,17 @@ function openManualSessionForm() {
   manualSessionStartInput.value = formatDateTimeLocal(start);
   manualSessionEndInput.value = formatDateTimeLocal(end);
   manualSessionNoteInput.value = "";
+  saveManualSessionButton.textContent = "Save Session";
   manualSessionForm.hidden = false;
 }
 
 function closeManualSessionForm() {
+  editingSessionId = null;
   manualSessionForm.hidden = true;
   manualSessionStartInput.value = "";
   manualSessionEndInput.value = "";
   manualSessionNoteInput.value = "";
+  saveManualSessionButton.textContent = "Save Session";
 }
 
 async function saveManualSession() {
@@ -446,7 +479,7 @@ async function saveManualSession() {
   try {
     saveManualSessionButton.disabled = true;
 
-    await createSession(currentUser.uid, {
+    const sessionData = {
       projectId: project.id,
       taskId: task.id,
       projectName: project.name,
@@ -454,16 +487,22 @@ async function saveManualSession() {
       start,
       end,
       note,
-      source: "manual"
-    });
+      source: editingSessionId ? sessions.find(session => session.id === editingSessionId)?.source || "manual" : "manual"
+    };
+
+    if (editingSessionId) {
+      await updateSessionInFirestore(currentUser.uid, editingSessionId, sessionData);
+    } else {
+      await createSession(currentUser.uid, sessionData);
+    }
 
     sessions = normalizeSessions(await getSessions(currentUser.uid));
 
     closeManualSessionForm();
     render();
   } catch (error) {
-    console.error("Failed to create manual session:", error);
-    alert(error.message || "The manual session could not be saved.");
+    console.error(editingSessionId ? "Failed to update session:" : "Failed to create session:", error);
+    alert(editingSessionId ? "The session could not be updated." : "The session could not be created.");
   } finally {
     saveManualSessionButton.disabled = false;
   }
@@ -805,15 +844,26 @@ function renderHistory() {
   const todaySessions = [...getTodaySessions()].sort((a, b) => b.start - a.start);
 
   if (todaySessions.length === 0) {
-    todayHistoryContainer.textContent = "No sessions today";
+    historyContainer.textContent = "No sessions today";
     return;
   }
 
-  todayHistoryContainer.innerHTML = todaySessions.map(session => {
+  historyContainer.innerHTML = todaySessions.map(session => {
     const startTime = new Date(session.start).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     const endTime = new Date(session.end).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
-    return `<div>${startTime} - ${endTime} - ${escapeHTML(session.taskName)} (${formatDuration(session.durationSeconds)})</div>`;
+    return `
+      <div class="history-entry">
+        <div>
+          ${startTime} - ${endTime} - ${escapeHTML(session.taskName)} (${formatDuration(session.durationSeconds)})
+        </div>
+
+        <div class="session-actions">
+          <button type="button" data-session-action="edit" data-session-id="${session.id}">Edit</button>
+          <button type="button" data-session-action="delete" data-session-id="${session.id}">Delete</button>
+        </div>
+      </div>
+    `;
   }).join("");
 }
 
