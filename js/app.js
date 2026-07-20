@@ -1188,6 +1188,13 @@ async function deleteTask(id) {
     return;
   }
 
+  const subtasks = tasks.filter(task => task.parentTaskId === id);
+
+  if (subtasks.length > 0) {
+    alert(`This task has ${subtasks.length} subtask${subtasks.length === 1 ? "" : "s"}. Delete or move them before deleting the parent task.`);
+    return;
+  }
+
   if (!window.confirm(`Delete "${task.name}" and all of its tracked time?`)) return;
 
   try {
@@ -1197,6 +1204,7 @@ async function deleteTask(id) {
     tasks = await getTasks(currentUser.uid);
     sessions = normalizeSessions(await getSessions(currentUser.uid));
 
+    renderTaskParentOptions();
     renderProjects();
     render();
   } catch (error) {
