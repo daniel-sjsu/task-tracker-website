@@ -1,6 +1,6 @@
 import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from "./firebase.js";
 import {  createProject, getProjects, deleteProjectAndData, updateProject as updateProjectInFirestore, archiveProject as archiveProjectInFirestore, restoreProject as restoreProjectInFirestore,
-          createTask, getTasks, completeTask as completeTaskInFirestore, reopenTask, deleteTask as deleteTaskFromFirestore, deleteSessionsByTask,
+          createTask, getTasks, completeTask as completeTaskInFirestore, reopenTask, deleteTask as deleteTaskFromFirestore, deleteSessionsByTask, archiveTask as archiveTaskInFirestore, restoreArchivedTask as restoreArchivedTaskInFirestore,
           getSessions, createSession, deleteSession as deleteSessionFromFirestore, updateSession as updateSessionInFirestore, updateTask as updateTaskInFirestore,
           saveTimerState, listenToTimerState } from "./database.js";
 
@@ -323,8 +323,10 @@ function renderProjects() {
   }
   
   const createProjectCard = project => {
-    const projectTasks = tasks.filter(task => task.projectId === project.id && !task.archived);
-    const completedCount = projectTasks.filter(task => task.completed).length;
+    const projectTasks = tasks.filter(task => task.projectId === project.id);
+    const visibleTasks = projectTasks.filter(task => !task.archived);
+    const archivedTasks = projectTasks.filter(task => task.archived);
+    const completedCount = visibleTasks.filter(task => task.completed).length;
     const estimate = project.estimatedHours !== null && project.estimatedHours !== undefined ? `${Number(project.estimatedHours).toFixed(2)} h estimated` : "No estimate";
 
     return `
@@ -333,19 +335,35 @@ function renderProjects() {
           <span class="project-color" style="background:${project.color}"></span>
           <h3>${escapeHTML(project.name)}</h3>
         </div>
+
         <p>${escapeHTML(project.description || "No description")}</p>
+
         <div class="project-stats">
-          <span>${projectTasks.length} tasks</span>
+          <span>${visibleTasks.length} active tasks</span>
           <span>${completedCount} completed</span>
+          <span>${archivedTasks.length} archived</span>
           <span>${estimate}</span>
         </div>
+
+        ${archivedTasks.length ? `
+          <details class="archived-task-list">
+            <summary>Archived Tasks (${archivedTasks.length})</summary>
+            ${archivedTasks.map(task => `
+              <div class="archived-task-row">
+                <span>${escapeHTML(task.name)}</span>
+                <button type="button" data-action="unarchive" data-task-id="${task.id}">Restore</button>
+              </div>
+            `).join("")}
+          </details>
+        ` : ""}
+
         <div class="project-actions">
-        ${project.archived
-          ? `<button type="button" data-project-action="restore" data-project-id="${project.id}">Restore</button>
-             <button type="button" data-project-action="delete" data-project-id="${project.id}">Delete</button>`
-          : `<button type="button" data-project-action="edit" data-project-id="${project.id}">Edit</button>
-             <button type="button" data-project-action="archive" data-project-id="${project.id}">Archive</button>
-             <button type="button" data-project-action="delete" data-project-id="${project.id}">Delete</button>`}
+          ${project.archived
+            ? `<button type="button" data-project-action="restore" data-project-id="${project.id}">Restore</button>
+              <button type="button" data-project-action="delete" data-project-id="${project.id}">Delete</button>`
+            : `<button type="button" data-project-action="edit" data-project-id="${project.id}">Edit</button>
+              <button type="button" data-project-action="archive" data-project-id="${project.id}">Archive</button>
+              <button type="button" data-project-action="delete" data-project-id="${project.id}">Delete</button>`}
         </div>
       </div>
     `;
@@ -598,6 +616,46 @@ function openTaskEditor(taskId) {
   addTaskButton.textContent = "Save Changes";
   nameInput.focus();
   nameInput.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+async function archiveTask(taskId) {
+  if (!currentUser) return;
+
+  const task = tasks.find(task => task.id === taskId);
+  if (!task) return;
+
+  if (state.runningTaskId === taskId) {
+    alert("Stop the running timer before archiving this task.");
+    return;
+  }
+
+  if (!window.confirm(`Archive "${task.name}"? Its tracked time and session history will be preserved.`)) return;
+
+  try {
+    await archiveTaskInFirestore(currentUser.uid, taskId);
+    tasks = await getTasks(currentUser.uid);
+    renderProjects();
+    renderManualSessionProjectOptions();
+    render();
+  } catch (error) {
+    console.error("Failed to archive task:", error);
+    alert("The task could not be archived.");
+  }
+}
+
+async function unarchiveTask(taskId) {
+  if (!currentUser) return;
+
+  try {
+    await restoreArchivedTaskInFirestore(currentUser.uid, taskId);
+    tasks = await getTasks(currentUser.uid);
+    renderProjects();
+    renderManualSessionProjectOptions();
+    render();
+  } catch (error) {
+    console.error("Failed to restore archived task:", error);
+    alert("The task could not be restored.");
+  }
 }
 
 function resetTaskForm() {
@@ -1067,6 +1125,9 @@ function createTaskElement(task) {
        <div class="progress"><div class="bar" style="width:${Math.min(Math.max(percentage, 0), 100)}%"></div></div>`
     : `<div>0.0%</div>
        <div class="progress"><div class="bar" style="width:0%"></div></div>`;
+  const archiveButton = task.archived
+    ? `<button type="button" data-action="unarchive" data-task-id="${task.id}">Restore from Archive</button>`
+    : `<button type="button" data-action="archive" data-task-id="${task.id}">Archive</button>`;
 
   taskElement.innerHTML = `
     ${projectLabel}
@@ -1079,6 +1140,8 @@ function createTaskElement(task) {
     ${timerButton}
     ${completionButton}
     <button type="button" data-action="edit" data-task-id="${task.id}">Edit</button>
+    <button type="button" data-action="delete" data-task-id="${task.id}">Delete</button>
+    ${archiveButton}
     <button type="button" data-action="delete" data-task-id="${task.id}">Delete</button>
   `;
 
@@ -1183,6 +1246,12 @@ async function handleTaskAction(event) {
     case "edit":
       openTaskEditor(taskId);
       break;
+    case "archive":
+      await archiveTask(taskId);
+      break;
+    case "unarchive":
+      await unarchiveTask(taskId);
+      break;
     
   }
 }
@@ -1244,3 +1313,6 @@ manualSessionProjectInput.addEventListener("change", renderManualSessionTaskOpti
 
 todayHistoryContainer.addEventListener("click", handleSessionAction);
 historyContainer.addEventListener("click", handleSessionAction);
+
+
+projectsContainer.addEventListener("click", handleTaskAction);

@@ -498,6 +498,28 @@
   .project-card.archived {
     opacity: 0.75;
   }
+  .archived-task-list {
+    margin-top: 16px;
+  }
+  
+  .archived-task-list summary {
+    cursor: pointer;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+  
+  .archived-task-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  
+  .archived-task-row:last-child {
+    border-bottom: 0;
+  }
   @media (max-width: 850px) {
     .header-content, .page-heading {
       align-items: stretch;
