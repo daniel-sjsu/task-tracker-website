@@ -78,6 +78,8 @@ const calendarContainer = document.getElementById("calendarContainer");
 
 const reportStartDate = document.getElementById("reportStartDate");
 const reportEndDate = document.getElementById("reportEndDate");
+const reportTodayButton = document.getElementById("reportTodayButton");
+const reportCurrentWeekButton = document.getElementById("reportCurrentWeekButton");
 const reportCurrentMonthButton = document.getElementById("reportCurrentMonthButton");
 const reportAllTimeButton = document.getElementById("reportAllTimeButton");
 const reportTotalHours = document.getElementById("reportTotalHours");
@@ -1744,6 +1746,24 @@ function setReportCurrentMonth() {
   reportEndDate.value = getLocalDateKey(lastDay);
 }
 
+function setReportToday() {
+  const today = getLocalDateKey(new Date());
+  reportStartDate.value = today;
+  reportEndDate.value = today;
+}
+
+function setReportCurrentWeek() {
+  const today = new Date();
+  const dayOfWeek = today.getDay();
+  const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+
+  const firstDay = new Date(today);
+  firstDay.setDate(today.getDate() - daysSinceMonday);
+
+  reportStartDate.value = getLocalDateKey(firstDay);
+  reportEndDate.value = getLocalDateKey(today);
+}
+
 function getReportSessions() {
   const startTime = getLocalDayStart(reportStartDate.value);
   const endTime = getLocalDayEnd(reportEndDate.value);
@@ -2080,6 +2100,15 @@ calendarContainer.addEventListener("click", handleCalendarAction);
 // Reports
 reportStartDate.addEventListener("change", renderReports);
 reportEndDate.addEventListener("change", renderReports);
+reportTodayButton.addEventListener("click", () => {
+  setReportToday();
+  renderReports();
+});
+
+reportCurrentWeekButton.addEventListener("click", () => {
+  setReportCurrentWeek();
+  renderReports();
+});
 reportCurrentMonthButton.addEventListener("click", () => {
   setReportCurrentMonth();
   renderReports();
@@ -2089,6 +2118,7 @@ reportAllTimeButton.addEventListener("click", () => {
   reportEndDate.value = "";
   renderReports();
 });
+
 
 // Export
 exportCSVButton.addEventListener("click", exportCSV);
