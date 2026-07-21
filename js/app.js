@@ -156,6 +156,12 @@ function formatDuration(seconds) {
   return `${hours}h ${minutes}m`;
 }
 
+function formatHours(hours) {
+  hours = Number(hours);
+  if (!Number.isFinite(hours) || hours < 0) hours = 0;
+  return formatDuration(hours * 3600);
+}
+
 function formatCalendarDuration(seconds) {
   seconds = Number(seconds);
 
@@ -1635,9 +1641,9 @@ function renderDashboard() {
   const runningTask = tasks.find(task => task.id === state.runningTaskId);
 
   dashboardContainer.innerHTML = `
-    <div class="card"><b>Today</b><br>${todayHours.toFixed(2)} h</div>
-    <div class="card"><b>This Week</b><br>${weekHours.toFixed(2)} h</div>
-    <div class="card"><b>Remaining Planned</b><br>${remainingHours.toFixed(2)} h</div>
+    <div class="card"><b>Today</b><br>${formatHours(todayHours)}</div>
+    <div class="card"><b>This Week</b><br>${formatHours(weekHours)}</div>
+    <div class="card"><b>Remaining Planned</b><br>${formatHours(remainingHours)}</div>
     <div class="card"><b>Completed Tasks</b><br>${completedCount}/${tasks.length} (${completionRate.toFixed(1)}%)</div>
     <div class="card"><b>Running</b><br>${runningTask ? escapeHTML(runningTask.name) : "None"}</div>
   `;
@@ -1806,15 +1812,13 @@ function getReportDayCount(reportSessions) {
 
 function renderReportSummary(reportSessions, projectTotals) {
   const totalSeconds = reportSessions.reduce((sum, session) => sum + Number(session.durationSeconds || 0), 0);
-  const totalHours = totalSeconds / 3600;
   const dayCount = getReportDayCount(reportSessions);
-  const averageHours = totalHours / dayCount;
   const topProject = projectTotals[0];
   const completedCount = getCompletedTasksForReport().length;
 
-  reportTotalHours.textContent = `${totalHours.toFixed(2)} h`;
+  reportTotalHours.textContent = formatDuration(totalSeconds);
   reportTopProject.textContent = topProject?.name || "None";
-  reportDailyAverage.textContent = `${averageHours.toFixed(2)} h`;
+  reportDailyAverage.textContent = formatDuration(totalSeconds / dayCount);
   reportCompletedTasks.textContent = completedCount;
 }
 
@@ -1847,6 +1851,13 @@ function renderReportProjectChart(projectTotals) {
       plugins: {
         legend: {
           display: false
+        },
+        tooltip: {
+          callbacks: {
+            label(context) {
+              return `Tracked: ${formatHours(context.raw)}`;
+            }
+          }
         }
       }
     }
@@ -1887,6 +1898,15 @@ function renderReportEstimateChart(projectTotals) {
           title: {
             display: true,
             text: "Hours"
+          }
+        }
+      },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label(context) {
+              return `${context.dataset.label}: ${formatHours(context.raw)}`;
+            }
           }
         }
       }
