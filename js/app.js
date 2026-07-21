@@ -2,7 +2,9 @@
 // IMPORTS
 // ============================================================================
 import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from "./firebase.js";
-import { createProject, getProjects, deleteProjectAndData, updateProject as updateProjectInFirestore, archiveProject as archiveProjectInFirestore, restoreProject as restoreProjectInFirestore, createTask, getTasks, updateTask as updateTaskInFirestore, completeTask as completeTaskInFirestore, reopenTask, deleteTask as deleteTaskFromFirestore, deleteSessionsByTask, archiveTask as archiveTaskInFirestore, restoreArchivedTask as restoreArchivedTaskInFirestore, getSessions, createSession, updateSession as updateSessionInFirestore, deleteSession as deleteSessionFromFirestore, saveTimerState, listenToTimerState } from "./database.js";
+import { createProject, getProjects, deleteProjectAndData, updateProject as updateProjectInFirestore, archiveProject as archiveProjectInFirestore, restoreProject as restoreProjectInFirestore, moveTaskSessionsToProject, 
+         createTask, getTasks, updateTask as updateTaskInFirestore, completeTask as completeTaskInFirestore, reopenTask, deleteTask as deleteTaskFromFirestore, deleteSessionsByTask, archiveTask as archiveTaskInFirestore, restoreArchivedTask as restoreArchivedTaskInFirestore, 
+         getSessions, createSession, updateSession as updateSessionInFirestore, deleteSession as deleteSessionFromFirestore, saveTimerState, listenToTimerState } from "./database.js";
 
 // ============================================================================
 // APPLICATION STATE
@@ -659,7 +661,12 @@ async function addTask() {
     if (editingTaskId) {
       const existingTask = tasks.find(task => task.id === editingTaskId);
     
-      if (state.runningTaskId === editingTaskId && existingTask?.projectId !== projectId) {
+      if (!existingTask) {
+        alert("The task could not be found.");
+        return;
+      }
+    
+      if (state.runningTaskId === editingTaskId && existingTask.projectId !== projectId) {
         alert("Stop the running timer before moving this task to another project.");
         return;
       }
@@ -671,12 +678,27 @@ async function addTask() {
         return;
       }
     
+      const projectChanged = existingTask.projectId !== projectId;
+      const newProject = projects.find(project => project.id === projectId);
+    
       await updateTaskInFirestore(currentUser.uid, editingTaskId, {
         name,
         projectId,
         parentTaskId,
         targetHours
       });
+    
+      if (projectChanged && newProject) {
+        await moveTaskSessionsToProject(currentUser.uid, editingTaskId, newProject);
+      
+        for (const subtask of existingSubtasks) {
+          await updateTaskInFirestore(currentUser.uid, subtask.id, {
+            projectId: newProject.id
+          });
+      
+          await moveTaskSessionsToProject(currentUser.uid, subtask.id, newProject);
+        }
+      }
     } else {
       await createTask(currentUser.uid, projectId, {
         name,
@@ -687,6 +709,7 @@ async function addTask() {
     }
 
     tasks = await getTasks(currentUser.uid);
+    sessions = normalizeSessions(await getSessions(currentUser.uid))
     resetTaskForm();
     renderTaskParentOptions();
     renderProjects();

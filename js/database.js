@@ -1,5 +1,5 @@
 import { db } from "./firebase.js";
-import { collection, addDoc, getDocs, getDoc, setDoc ,doc, updateDoc, deleteDoc, serverTimestamp, query, orderBy ,where, Timestamp, onSnapshot} from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+import { collection, addDoc, getDocs, getDoc, setDoc ,doc, updateDoc, deleteDoc, serverTimestamp, query, orderBy ,where, Timestamp, onSnapshot, writeBatch} from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
 export async function createProject(userId, projectData) {
   if (!userId) throw new Error("A signed-in user is required.");
@@ -367,4 +367,27 @@ export async function deleteSessionsByTask(userId, taskId) {
   const snapshot = await getDocs(sessionsQuery);
 
   await Promise.all(snapshot.docs.map(sessionDocument => deleteDoc(sessionDocument.ref)));
+}
+
+export async function moveTaskSessionsToProject(userId, taskId, project) {
+  const sessionsRef = collection(db, "users", userId, "sessions");
+  const taskSessionsQuery = query(sessionsRef, where("taskId", "==", taskId));
+  const snapshot = await getDocs(taskSessionsQuery);
+
+  const documents = snapshot.docs;
+
+  for (let index = 0; index < documents.length; index += 500) {
+    const batch = writeBatch(db);
+    const chunk = documents.slice(index, index + 500);
+
+    chunk.forEach(sessionDocument => {
+      batch.update(doc(db, "users", userId, "sessions", sessionDocument.id), {
+        projectId: project.id,
+        projectName: project.name,
+        updatedAt: serverTimestamp()
+      });
+    });
+
+    await batch.commit();
+  }
 }
