@@ -1041,21 +1041,36 @@ function renderTasks() {
   sortedProjectGroups.forEach(([projectId, projectTasks]) => {
     const project = projects.find(project => project.id === projectId);
     const group = document.createElement("div");
-    const completedParents = projectTasks.filter(task => !task.parentTaskId);
-
+  
     group.className = "completed-project-group";
     group.innerHTML = `
       <h3 class="completed-project-heading">
         ${project ? `<span style="background:${project.color}"></span>${escapeHTML(project.name)}` : "Unknown project"}
       </h3>
     `;
-
-    completedParents
-      .sort((a, b) => getCompletedTimestamp(b) - getCompletedTimestamp(a))
-      .forEach(parentTask => {
-        appendTaskTree(group, parentTask, projectTasks);
-      });
-
+  
+    const completedParents = projectTasks
+      .filter(task => !task.parentTaskId)
+      .sort((a, b) => getCompletedTimestamp(b) - getCompletedTimestamp(a));
+  
+    completedParents.forEach(parentTask => {
+      appendTaskTree(group, parentTask, projectTasks);
+    });
+  
+    const completedOrphanedSubtasks = projectTasks
+      .filter(task => {
+        if (!task.parentTaskId) return false;
+  
+        const parent = tasks.find(parentTask => parentTask.id === task.parentTaskId);
+  
+        return !parent || !parent.completed;
+      })
+      .sort((a, b) => getCompletedTimestamp(b) - getCompletedTimestamp(a));
+  
+    completedOrphanedSubtasks.forEach(subtask => {
+      group.appendChild(createTaskElement(subtask, true));
+    });
+  
     completedTasksContainer.appendChild(group);
   });
 }
