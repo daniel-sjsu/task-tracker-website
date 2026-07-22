@@ -1025,6 +1025,8 @@ function captureTaskNoteUIState() {
 }
 
 function restoreTaskNoteUIState(savedState) {
+  const scrollX = window.scrollX;
+  const scrollY = window.scrollY;
   savedState.noteState.forEach((state, taskId) => {
     const textarea = document.querySelector(`textarea[data-note-input="${taskId}"]`);
     const noteSection = textarea?.closest(".task-notes");
@@ -1042,15 +1044,16 @@ function restoreTaskNoteUIState(savedState) {
 
   if (savedState.focusedTaskId) {
     const textarea = document.querySelector(`textarea[data-note-input="${savedState.focusedTaskId}"]`);
-
+  
     if (textarea) {
-      textarea.focus();
-
+      textarea.focus({ preventScroll: true });
+  
       if (savedState.selectionStart !== null && savedState.selectionEnd !== null) {
         textarea.setSelectionRange(savedState.selectionStart, savedState.selectionEnd);
       }
     }
   }
+  window.scrollTo(scrollX, scrollY);
 }
 function renderTasks() {
   const savedNoteState = captureTaskNoteUIState();
@@ -1273,8 +1276,9 @@ async function handleTaskNoteAction(event) {
       }
 
       taskNotes = normalizeTaskNotes(await getTaskNotes(currentUser.uid));
-      editingTaskNoteId = null;
-      renderTasks();
+    editingTaskNoteId = null;
+    textarea.value = "";
+    renderTasks();
     } catch (error) {
       console.error("Failed to save task note:", error);
       alert("The task note could not be saved.");
