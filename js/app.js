@@ -1055,7 +1055,7 @@ function restoreTaskNoteUIState(savedState) {
   }
   window.scrollTo(scrollX, scrollY);
 }
-function renderTasks() {
+function renderTasks(clearNoteTaskId = null) {
   const savedNoteState = captureTaskNoteUIState();
 
   if (clearNoteTaskId) {
