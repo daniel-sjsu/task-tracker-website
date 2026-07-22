@@ -3,7 +3,7 @@
 // ============================================================================
 import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from "./firebase.js";
 import { createProject, getProjects, deleteProjectAndData, updateProject as updateProjectInFirestore, archiveProject as archiveProjectInFirestore, restoreProject as restoreProjectInFirestore, moveTaskSessionsToProject, 
-         createTask, getTasks, updateTask as updateTaskInFirestore, completeTask as completeTaskInFirestore, reopenTask, deleteTask as deleteTaskFromFirestore, deleteSessionsByTask, archiveTask as archiveTaskInFirestore, restoreArchivedTask as restoreArchivedTaskInFirestore, 
+         createTask, getTasks, updateTask as updateTaskInFirestore, completeTask as completeTaskInFirestore, reopenTask, deleteTask as deleteTaskFromFirestore, deleteSessionsByTask, archiveTask as archiveTaskInFirestore, restoreArchivedTask as restoreArchivedTaskInFirestore, createTaskNote, getTaskNotes, updateTaskNote, deleteTaskNote,
          getSessions, createSession, updateSession as updateSessionInFirestore, deleteSession as deleteSessionFromFirestore, saveTimerState, listenToTimerState } from "./database.js";
 
 // ============================================================================
@@ -12,6 +12,7 @@ import { createProject, getProjects, deleteProjectAndData, updateProject as upda
 let projects = [];
 let tasks = [];
 let sessions = [];
+let taskNotes = [];
 let state = {
   runningTaskId: null,
   runningProjectId: null,
@@ -22,6 +23,7 @@ let currentUser = null;
 let unsubscribeTimerState = null;
 let editingProjectId = null;
 let editingTaskId = null;
+let editingTaskNoteId = null;
 let editingSessionId = null;
 
 let calendarDate = new Date();
@@ -215,6 +217,7 @@ async function loadFirestoreData() {
     projects = await getProjects(currentUser.uid);
     tasks = await getTasks(currentUser.uid);
     sessions = normalizeSessions(await getSessions(currentUser.uid));
+    taskNotes = normalizeTaskNotes(await getTaskNotes(currentUser.uid));
     renderProjects();
     renderProjectOptions();
     renderManualSessionProjectOptions();
@@ -870,6 +873,8 @@ function createTaskElement(task, isSubtask = false) {
   const percentage = hasTarget ? seconds / goalSeconds * 100 : 0;
   const differenceHours = hasTarget ? (seconds - goalSeconds) / 3600 : null;
   const taskElement = document.createElement("div");
+  const notes = getNotesForTask(task.id);
+  const latestNote = notes[0];
 
   taskElement.className = [
     "card",
@@ -907,7 +912,37 @@ function createTaskElement(task, isSubtask = false) {
   const archiveButton = task.archived
     ? `<button type="button" data-action="unarchive" data-task-id="${task.id}">Restore from Archive</button>`
     : `<button type="button" data-action="archive" data-task-id="${task.id}">Archive</button>`;
-
+  
+    const notesDisplay = `
+    <details class="task-notes">
+      <summary>
+        Notes (${notes.length})
+        ${latestNote ? `<span class="task-note-preview">Latest: ${escapeHTML(latestNote.text)}</span>` : ""}
+      </summary>
+  
+      <div class="task-note-list">
+        ${notes.length
+          ? notes.map(note => `
+              <div class="task-note-entry">
+                <div class="task-note-text">${escapeHTML(note.text)}</div>
+                <div class="task-note-meta">${formatTaskNoteDate(note.createdAt)}</div>
+  
+                <div class="task-note-actions">
+                  <button type="button" data-note-action="edit" data-note-id="${note.id}" data-task-id="${task.id}">Edit</button>
+                  <button type="button" data-note-action="delete" data-note-id="${note.id}" data-task-id="${task.id}">Delete</button>
+                </div>
+              </div>
+            `).join("")
+          : `<p class="empty-state">No notes yet.</p>`}
+      </div>
+  
+      <div class="task-note-form">
+        <textarea data-note-input="${task.id}" rows="3" placeholder="Write an update about this task..."></textarea>
+        <button type="button" data-note-action="save" data-task-id="${task.id}">Add Note</button>
+        <button type="button" data-note-action="cancel" data-task-id="${task.id}" hidden>Cancel</button>
+      </div>
+    </details>
+  `;
   taskElement.innerHTML = `
     ${relationshipLabel}
     <h3>${escapeHTML(task.name)}</h3>
@@ -922,6 +957,7 @@ function createTaskElement(task, isSubtask = false) {
     <button type="button" data-action="edit" data-task-id="${task.id}">Edit</button>
     ${archiveButton}
     <button type="button" data-action="delete" data-task-id="${task.id}">Delete</button>
+    ${notesDisplay}
   `;
 
   return taskElement;
@@ -1117,10 +1153,136 @@ async function handleTaskAction(event) {
     
   }
 }
+function taskElementButton(taskId, action) {
+  const textarea = document.querySelector(`textarea[data-note-input="${taskId}"]`);
+  const taskElement = textarea?.closest(".task");
 
+  return taskElement?.querySelector(`button[data-note-action="${action}"][data-task-id="${taskId}"]`) || null;
+}
+async function handleTaskNoteAction(event) {
+  const button = event.target.closest("button[data-note-action]");
+  if (!button || !currentUser) return;
+
+  const action = button.dataset.noteAction;
+  const taskId = button.dataset.taskId;
+  const noteId = button.dataset.noteId;
+  const task = tasks.find(task => task.id === taskId);
+  const textarea = document.querySelector(`textarea[data-note-input="${taskId}"]`);
+
+  if (!task || !textarea) return;
+
+  if (action === "save") {
+    const text = textarea.value.trim();
+
+    if (!text) {
+      alert("Enter a note.");
+      return;
+    }
+
+    try {
+      button.disabled = true;
+
+      const editingNote = editingTaskNoteId
+        ? taskNotes.find(note => note.id === editingTaskNoteId)
+        : null;
+
+      if (editingNote && editingNote.taskId === taskId) {
+        await updateTaskNote(currentUser.uid, editingTaskNoteId, { text });
+      } else {
+        await createTaskNote(currentUser.uid, {
+          taskId: task.id,
+          text
+        });
+      }
+
+      taskNotes = normalizeTaskNotes(await getTaskNotes(currentUser.uid));
+      editingTaskNoteId = null;
+      renderTasks();
+    } catch (error) {
+      console.error("Failed to save task note:", error);
+      alert("The task note could not be saved.");
+    } finally {
+      button.disabled = false;
+    }
+
+    return;
+  }
+
+  if (action === "edit") {
+    const note = taskNotes.find(note => note.id === noteId);
+    if (!note) return;
+
+    editingTaskNoteId = note.id;
+    textarea.value = note.text;
+
+    const saveButton = taskElementButton(taskId, "save");
+    const cancelButton = taskElementButton(taskId, "cancel");
+
+    if (saveButton) saveButton.textContent = "Save Changes";
+    if (cancelButton) cancelButton.hidden = false;
+
+    textarea.focus();
+    return;
+  }
+
+  if (action === "cancel") {
+    editingTaskNoteId = null;
+    textarea.value = "";
+
+    const saveButton = taskElementButton(taskId, "save");
+    const cancelButton = taskElementButton(taskId, "cancel");
+
+    if (saveButton) saveButton.textContent = "Add Note";
+    if (cancelButton) cancelButton.hidden = true;
+
+    return;
+  }
+
+  if (action === "delete") {
+    const note = taskNotes.find(note => note.id === noteId);
+    if (!note) return;
+
+    if (!window.confirm("Delete this task note?")) return;
+
+    try {
+      await deleteTaskNote(currentUser.uid, noteId);
+      taskNotes = normalizeTaskNotes(await getTaskNotes(currentUser.uid));
+
+      if (editingTaskNoteId === noteId) editingTaskNoteId = null;
+
+      renderTasks();
+    } catch (error) {
+      console.error("Failed to delete task note:", error);
+      alert("The task note could not be deleted.");
+    }
+  }
+}
 // ============================================================================
 // TIMER MANAGEMENT
 // ============================================================================
+function normalizeTaskNotes(noteDocuments) {
+  return noteDocuments.map(note => ({
+    ...note,
+    createdAt: note.createdAt?.toMillis ? note.createdAt.toMillis() : Number(note.createdAt),
+    updatedAt: note.updatedAt?.toMillis ? note.updatedAt.toMillis() : Number(note.updatedAt)
+  }));
+}
+function getNotesForTask(taskId) {
+  return taskNotes
+    .filter(note => note.taskId === taskId)
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+function formatTaskNoteDate(timestamp) {
+  const date = new Date(timestamp);
+
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
 function getTaskSessionSeconds(taskId) {
   return sessions
     .filter(session => session.taskId === taskId)
@@ -2024,12 +2186,13 @@ onAuthStateChanged(auth, async user => {
     projects = [];
     tasks = [];
     sessions = [];
+    taskNotes = [];
     state = {
       runningTaskId: null,
       runningProjectId: null,
       startTime: null
     };
-
+    editingTaskNoteId = null;
     currentUser = null;
     userStatus.textContent = "Not signed in";
     loginButton.hidden = false;
@@ -2081,6 +2244,8 @@ nameInput.addEventListener("keydown", event => {
 goalInput.addEventListener("keydown", event => {
   if (event.key === "Enter") addTask();
 });
+activeTasksContainer.addEventListener("click", handleTaskNoteAction);
+completedTasksContainer.addEventListener("click", handleTaskNoteAction);
 
 // Sessions
 addManualSessionButton.addEventListener("click", openManualSessionForm);

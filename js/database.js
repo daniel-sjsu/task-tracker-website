@@ -152,7 +152,40 @@ export async function updateTask(userId, taskId, changes) {
   const taskReference = doc(db, "users", userId, "tasks", taskId);
   await updateDoc(taskReference, allowedChanges);
 }
+export async function createTaskNote(userId, noteData) {
+  const notesRef = collection(db, "users", userId, "taskNotes");
 
+  return addDoc(notesRef, {
+    taskId: noteData.taskId,
+    text: noteData.text,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function getTaskNotes(userId) {
+  const notesRef = collection(db, "users", userId, "taskNotes");
+  const notesQuery = query(notesRef, orderBy("createdAt", "desc"));
+  const snapshot = await getDocs(notesQuery);
+
+  return snapshot.docs.map(noteDocument => ({
+    id: noteDocument.id,
+    ...noteDocument.data()
+  }));
+}
+export async function updateTaskNote(userId, noteId, noteData) {
+  const noteRef = doc(db, "users", userId, "taskNotes", noteId);
+
+  await updateDoc(noteRef, {
+    text: noteData.text,
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function deleteTaskNote(userId, noteId) {
+  const noteRef = doc(db, "users", userId, "taskNotes", noteId);
+  await deleteDoc(noteRef);
+}
 export async function completeTask(userId, taskId) {
   await updateTask(userId, taskId, { completed: true, completedAt: serverTimestamp() });
 }
