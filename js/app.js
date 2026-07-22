@@ -552,6 +552,7 @@ function renderTaskParentOptions(selectedParentId = "") {
     if (task.projectId !== projectId) return false;
     if (task.parentTaskId) return false;
     if (task.archived) return false;
+    if (task.completed) return false;
     if (task.id === editingTaskId) return false;
     return true;
   });
@@ -662,8 +663,17 @@ async function addTask() {
   }
   const parentTask = parentTaskId ? tasks.find(task => task.id === parentTaskId) : null;
 
-  if (parentTaskId && (!parentTask || parentTask.projectId !== projectId)) {
-    alert("Select a valid parent task.");
+  if (
+    parentTaskId &&
+    (
+      !parentTask ||
+      parentTask.projectId !== projectId ||
+      parentTask.completed ||
+      parentTask.archived ||
+      parentTask.parentTaskId
+    )
+  ) {
+    alert("Select an active top-level parent task.");
     return;
   }
   try {
