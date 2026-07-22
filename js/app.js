@@ -884,7 +884,7 @@ function createTaskElement(task, isSubtask = false) {
     state.runningTaskId === task.id ? "running" : "",
     task.completed ? "completed" : ""
   ].filter(Boolean).join(" ");
-
+  taskElement.dataset.taskId = task.id;
   const timerButton = task.completed || hasSubtasks
     ? ""
     : state.runningTaskId === task.id
@@ -900,8 +900,8 @@ function createTaskElement(task, isSubtask = false) {
     : `<div>Target: None</div>`;
 
   const trackedDisplay = hasSubtasks
-    ? `<div>Tracked: ${formatDuration(seconds)} including subtasks</div>`
-    : `<div>Tracked: ${formatDuration(seconds)}</div>`;
+    ? `<div data-task-tracked="${task.id}">Tracked: ${formatDuration(seconds)} including subtasks</div>`
+    : `<div data-task-tracked="${task.id}">Tracked: ${formatDuration(seconds)}</div>`;
 
   const progressDisplay = hasTarget
     ? `<div>${differenceHours >= 0 ? `Overrun: +${differenceHours.toFixed(2)} h` : `Remaining: ${Math.abs(differenceHours).toFixed(2)} h`}</div>
@@ -1025,8 +1025,6 @@ function captureTaskNoteUIState() {
 }
 
 function restoreTaskNoteUIState(savedState) {
-  const scrollX = window.scrollX;
-  const scrollY = window.scrollY;
   savedState.noteState.forEach((state, taskId) => {
     const textarea = document.querySelector(`textarea[data-note-input="${taskId}"]`);
     const noteSection = textarea?.closest(".task-notes");
@@ -1053,7 +1051,6 @@ function restoreTaskNoteUIState(savedState) {
       }
     }
   }
-  window.scrollTo(scrollX, scrollY);
 }
 function renderTasks(clearNoteTaskId = null) {
   const savedNoteState = captureTaskNoteUIState();
@@ -1357,6 +1354,22 @@ async function handleTaskNoteAction(event) {
 // ============================================================================
 // TIMER MANAGEMENT
 // ============================================================================
+function updateRunningTaskDisplay() {
+  if (!state.runningTaskId) return;
+
+  const runningTask = tasks.find(task => task.id === state.runningTaskId);
+  if (!runningTask) return;
+
+  const trackedElements = document.querySelectorAll(`[data-task-tracked="${runningTask.id}"]`);
+  const seconds = getTaskDisplaySeconds(runningTask);
+  const hasSubtasks = taskHasSubtasks(runningTask.id);
+
+  trackedElements.forEach(element => {
+    element.textContent = hasSubtasks
+      ? `Tracked: ${formatDuration(seconds)} including subtasks`
+      : `Tracked: ${formatDuration(seconds)}`;
+  });
+}
 function normalizeTaskNotes(noteDocuments) {
   return noteDocuments.map(note => ({
     ...note,
@@ -2403,6 +2416,7 @@ exportCSVButton.addEventListener("click", exportCSV);
 // Keep running timers visually current.
 setInterval(() => {
   if (!currentUser) return;
+
   renderDashboard();
-  renderTasks();
+  updateRunningTaskDisplay();
 }, 1000);
