@@ -986,8 +986,75 @@ function appendTaskTree(container, parentTask, visibleTasks) {
 
   container.appendChild(parentWrapper);
 }
+function captureTaskNoteUIState() {
+  const noteState = new Map();
+  const focusedElement = document.activeElement;
+  let focusedTaskId = null;
+  let selectionStart = null;
+  let selectionEnd = null;
 
+  document.querySelectorAll(".task-notes").forEach(noteSection => {
+    const taskElement = noteSection.closest(".task");
+    const textarea = noteSection.querySelector("textarea[data-note-input]");
+    if (!taskElement || !textarea) return;
+
+    const taskId = textarea.dataset.noteInput;
+    const saveButton = noteSection.querySelector(`button[data-note-action="save"][data-task-id="${taskId}"]`);
+    const cancelButton = noteSection.querySelector(`button[data-note-action="cancel"][data-task-id="${taskId}"]`);
+
+    noteState.set(taskId, {
+      open: noteSection.open,
+      value: textarea.value,
+      saveButtonText: saveButton?.textContent || "Add Note",
+      cancelHidden: cancelButton?.hidden ?? true
+    });
+
+    if (focusedElement === textarea) {
+      focusedTaskId = taskId;
+      selectionStart = textarea.selectionStart;
+      selectionEnd = textarea.selectionEnd;
+    }
+  });
+
+  return {
+    noteState,
+    focusedTaskId,
+    selectionStart,
+    selectionEnd
+  };
+}
+
+function restoreTaskNoteUIState(savedState) {
+  savedState.noteState.forEach((state, taskId) => {
+    const textarea = document.querySelector(`textarea[data-note-input="${taskId}"]`);
+    const noteSection = textarea?.closest(".task-notes");
+    if (!textarea || !noteSection) return;
+
+    noteSection.open = state.open;
+    textarea.value = state.value;
+
+    const saveButton = noteSection.querySelector(`button[data-note-action="save"][data-task-id="${taskId}"]`);
+    const cancelButton = noteSection.querySelector(`button[data-note-action="cancel"][data-task-id="${taskId}"]`);
+
+    if (saveButton) saveButton.textContent = state.saveButtonText;
+    if (cancelButton) cancelButton.hidden = state.cancelHidden;
+  });
+
+  if (savedState.focusedTaskId) {
+    const textarea = document.querySelector(`textarea[data-note-input="${savedState.focusedTaskId}"]`);
+
+    if (textarea) {
+      textarea.focus();
+
+      if (savedState.selectionStart !== null && savedState.selectionEnd !== null) {
+        textarea.setSelectionRange(savedState.selectionStart, savedState.selectionEnd);
+      }
+    }
+  }
+}
 function renderTasks() {
+  const savedNoteState = captureTaskNoteUIState();
+
   activeTasksContainer.innerHTML = "";
   completedTasksContainer.innerHTML = "";
 
@@ -1028,10 +1095,11 @@ function renderTasks() {
 
         <div>
           <strong>${escapeHTML(project?.name || "Unknown project")}</strong>
+
           <div class="active-project-meta">
             ${activeParents.length} top-level task${activeParents.length === 1 ? "" : "s"} ·
             ${formatDuration(totalSeconds)} tracked ·
-            ${estimatedHours.toFixed(2)} h estimated
+            ${formatHours(estimatedHours)} estimated
           </div>
         </div>
       </div>
@@ -1045,13 +1113,14 @@ function renderTasks() {
       .forEach(parentTask => {
         appendTaskTree(projectTaskContainer, parentTask, projectTasks);
       });
+
     projectGroup.addEventListener("toggle", () => {
-        if (projectGroup.open) {
-          collapsedActiveProjects.delete(projectId);
-        } else {
-          collapsedActiveProjects.add(projectId);
-        }
-      });
+      if (projectGroup.open) {
+        collapsedActiveProjects.delete(projectId);
+      } else {
+        collapsedActiveProjects.add(projectId);
+      }
+    });
 
     projectGroup.appendChild(summary);
     projectGroup.appendChild(projectTaskContainer);
@@ -1059,56 +1128,64 @@ function renderTasks() {
   });
 
   const completedTasks = visibleTasks.filter(task => task.completed);
-  if (completedTasks.length === 0) return;
 
-  const completedByProject = completedTasks.reduce((groups, task) => {
-    const projectId = task.projectId || "unknown";
-    if (!groups[projectId]) groups[projectId] = [];
-    groups[projectId].push(task);
-    return groups;
-  }, {});
+  if (completedTasks.length > 0) {
+    const completedByProject = completedTasks.reduce((groups, task) => {
+      const projectId = task.projectId || "unknown";
 
-  const sortedProjectGroups = Object.entries(completedByProject).sort(([, tasksA], [, tasksB]) => {
-    const newestA = Math.max(...tasksA.map(task => getCompletedTimestamp(task)));
-    const newestB = Math.max(...tasksB.map(task => getCompletedTimestamp(task)));
-    return newestB - newestA;
-  });
+      if (!groups[projectId]) groups[projectId] = [];
+      groups[projectId].push(task);
 
-  sortedProjectGroups.forEach(([projectId, projectTasks]) => {
-    const project = projects.find(project => project.id === projectId);
-    const group = document.createElement("div");
-  
-    group.className = "completed-project-group";
-    group.innerHTML = `
-      <h3 class="completed-project-heading">
-        ${project ? `<span style="background:${project.color}"></span>${escapeHTML(project.name)}` : "Unknown project"}
-      </h3>
-    `;
-  
-    const completedParents = projectTasks
-      .filter(task => !task.parentTaskId)
-      .sort((a, b) => getCompletedTimestamp(b) - getCompletedTimestamp(a));
-  
-    completedParents.forEach(parentTask => {
-      appendTaskTree(group, parentTask, projectTasks);
+      return groups;
+    }, {});
+
+    const sortedProjectGroups = Object.entries(completedByProject).sort(([, tasksA], [, tasksB]) => {
+      const newestA = Math.max(...tasksA.map(task => getCompletedTimestamp(task)));
+      const newestB = Math.max(...tasksB.map(task => getCompletedTimestamp(task)));
+
+      return newestB - newestA;
     });
-  
-    const completedOrphanedSubtasks = projectTasks
-      .filter(task => {
-        if (!task.parentTaskId) return false;
-  
-        const parent = tasks.find(parentTask => parentTask.id === task.parentTaskId);
-  
-        return !parent || !parent.completed;
-      })
-      .sort((a, b) => getCompletedTimestamp(b) - getCompletedTimestamp(a));
-  
-    completedOrphanedSubtasks.forEach(subtask => {
-      group.appendChild(createTaskElement(subtask, true));
+
+    sortedProjectGroups.forEach(([projectId, projectTasks]) => {
+      const project = projects.find(project => project.id === projectId);
+      const group = document.createElement("div");
+
+      group.className = "completed-project-group";
+      group.innerHTML = `
+        <h3 class="completed-project-heading">
+          ${project
+            ? `<span style="background:${project.color}"></span>${escapeHTML(project.name)}`
+            : "Unknown project"}
+        </h3>
+      `;
+
+      const completedParents = projectTasks
+        .filter(task => !task.parentTaskId)
+        .sort((a, b) => getCompletedTimestamp(b) - getCompletedTimestamp(a));
+
+      completedParents.forEach(parentTask => {
+        appendTaskTree(group, parentTask, projectTasks);
+      });
+
+      const completedSubtasksWithActiveParents = projectTasks
+        .filter(task => {
+          if (!task.parentTaskId) return false;
+
+          const parent = tasks.find(parentTask => parentTask.id === task.parentTaskId);
+
+          return !parent || !parent.completed;
+        })
+        .sort((a, b) => getCompletedTimestamp(b) - getCompletedTimestamp(a));
+
+      completedSubtasksWithActiveParents.forEach(subtask => {
+        group.appendChild(createTaskElement(subtask, true));
+      });
+
+      completedTasksContainer.appendChild(group);
     });
-  
-    completedTasksContainer.appendChild(group);
-  });
+  }
+
+  restoreTaskNoteUIState(savedNoteState);
 }
 
 function toggleCompleted() {
