@@ -904,9 +904,9 @@ function createTaskElement(task, isSubtask = false) {
     : `<div data-task-tracked="${task.id}">Tracked: ${formatDuration(seconds)}</div>`;
 
   const progressDisplay = hasTarget
-    ? `<div>${differenceHours >= 0 ? `Overrun: +${differenceHours.toFixed(2)} h` : `Remaining: ${Math.abs(differenceHours).toFixed(2)} h`}</div>
-       <div>${percentage.toFixed(1)}%</div>
-       <div class="progress"><div class="bar" style="width:${Math.min(Math.max(percentage, 0), 100)}%"></div></div>`
+    ? `<div data-task-difference="${task.id}">${differenceHours >= 0 ? `Overrun: +${differenceHours.toFixed(2)} h` : `Remaining: ${Math.abs(differenceHours).toFixed(2)} h`}</div>
+       <div data-task-percentage="${task.id}">${percentage.toFixed(1)}%</div>
+       <div class="progress"><div class="bar" data-task-progress="${task.id}" style="width:${Math.min(Math.max(percentage, 0), 100)}%"></div></div>`
     : "";
 
   const archiveButton = task.archived
@@ -1354,22 +1354,54 @@ async function handleTaskNoteAction(event) {
 // ============================================================================
 // TIMER MANAGEMENT
 // ============================================================================
+function updateTaskTimeDisplay(task) {
+  if (!task) return;
+
+  const seconds = getTaskDisplaySeconds(task);
+  const targetHours = getTaskTargetHours(task);
+  const hasTarget = Number.isFinite(targetHours) && targetHours > 0;
+  const hasSubtasks = taskHasSubtasks(task.id);
+
+  document.querySelectorAll(`[data-task-tracked="${task.id}"]`).forEach(element => {
+    element.textContent = hasSubtasks
+      ? `Tracked: ${formatDuration(seconds)} including subtasks`
+      : `Tracked: ${formatDuration(seconds)}`;
+  });
+
+  if (!hasTarget) return;
+
+  const goalSeconds = targetHours * 3600;
+  const percentage = seconds / goalSeconds * 100;
+  const differenceHours = (seconds - goalSeconds) / 3600;
+
+  document.querySelectorAll(`[data-task-difference="${task.id}"]`).forEach(element => {
+    element.textContent = differenceHours >= 0
+      ? `Overrun: +${differenceHours.toFixed(2)} h`
+      : `Remaining: ${Math.abs(differenceHours).toFixed(2)} h`;
+  });
+
+  document.querySelectorAll(`[data-task-percentage="${task.id}"]`).forEach(element => {
+    element.textContent = `${percentage.toFixed(1)}%`;
+  });
+
+  document.querySelectorAll(`[data-task-progress="${task.id}"]`).forEach(element => {
+    element.style.width = `${Math.min(Math.max(percentage, 0), 100)}%`;
+  });
+}
 function updateRunningTaskDisplay() {
   if (!state.runningTaskId) return;
 
   const runningTask = tasks.find(task => task.id === state.runningTaskId);
   if (!runningTask) return;
 
-  const trackedElements = document.querySelectorAll(`[data-task-tracked="${runningTask.id}"]`);
-  const seconds = getTaskDisplaySeconds(runningTask);
-  const hasSubtasks = taskHasSubtasks(runningTask.id);
+  updateTaskTimeDisplay(runningTask);
 
-  trackedElements.forEach(element => {
-    element.textContent = hasSubtasks
-      ? `Tracked: ${formatDuration(seconds)} including subtasks`
-      : `Tracked: ${formatDuration(seconds)}`;
-  });
+  if (runningTask.parentTaskId) {
+    const parentTask = tasks.find(task => task.id === runningTask.parentTaskId);
+    updateTaskTimeDisplay(parentTask);
+  }
 }
+
 function normalizeTaskNotes(noteDocuments) {
   return noteDocuments.map(note => ({
     ...note,
