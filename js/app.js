@@ -1058,6 +1058,22 @@ function restoreTaskNoteUIState(savedState) {
 function renderTasks() {
   const savedNoteState = captureTaskNoteUIState();
 
+  if (clearNoteTaskId) {
+    const savedTaskState = savedNoteState.noteState.get(clearNoteTaskId);
+
+    if (savedTaskState) {
+      savedTaskState.value = "";
+      savedTaskState.saveButtonText = "Add Note";
+      savedTaskState.cancelHidden = true;
+    }
+
+    if (savedNoteState.focusedTaskId === clearNoteTaskId) {
+      savedNoteState.focusedTaskId = null;
+      savedNoteState.selectionStart = null;
+      savedNoteState.selectionEnd = null;
+    }
+  }
+
   activeTasksContainer.innerHTML = "";
   completedTasksContainer.innerHTML = "";
 
@@ -1275,9 +1291,9 @@ async function handleTaskNoteAction(event) {
         });
       }
 
-      taskNotes = normalizeTaskNotes(await getTaskNotes(currentUser.uid));
+    taskNotes = normalizeTaskNotes(await getTaskNotes(currentUser.uid));
     editingTaskNoteId = null;
-    textarea.value = "";
+    renderTasks(taskId);
     renderTasks();
     } catch (error) {
       console.error("Failed to save task note:", error);
