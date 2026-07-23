@@ -56,7 +56,25 @@
               <p>Create a task for the currently selected project.</p>
             </div>
           </div>
-
+          <div id="taskOnboarding" class="card onboarding-card" hidden>
+            <h3>Welcome to Time Tracker Pro</h3>
+            <p>Your General project has been created automatically, so you can create your first task immediately.</p>
+          
+            <div class="onboarding-steps">
+              <div><strong>1.</strong> Create a task below.</div>
+              <div><strong>2.</strong> Press Start when you begin working.</div>
+              <div><strong>3.</strong> Create additional projects when you want to organize related tasks.</div>
+            </div>
+          
+            <button
+              id="onboardingProjectsButton"
+              class="secondary-button"
+              type="button"
+              title="Switch to the Projects tab and open the new-project form"
+            >
+              Create Another Project
+            </button>
+          </div>
           <div class="task-form">
             <label>
               <span>Project</span>

@@ -38,6 +38,10 @@ const collapsedActiveProjects = new Set();
 // ============================================================================
 // DOM REFERENCES
 // ============================================================================
+
+const taskOnboarding = document.getElementById("taskOnboarding");
+const onboardingProjectsButton = document.getElementById("onboardingProjectsButton");
+
 const nameInput = document.getElementById("name");
 const goalInput = document.getElementById("goal");
 const taskProjectInput = document.getElementById("taskProjectInput");
@@ -215,6 +219,8 @@ async function loadFirestoreData() {
 
   try {
     projects = await getProjects(currentUser.uid);
+    await ensureGeneralProject();
+
     tasks = await getTasks(currentUser.uid);
     sessions = normalizeSessions(await getSessions(currentUser.uid));
     taskNotes = normalizeTaskNotes(await getTaskNotes(currentUser.uid));
@@ -252,13 +258,28 @@ function startTimerStateListener() {
 // ============================================================================
 // PROJECT MANAGEMENT
 // ============================================================================
+async function ensureGeneralProject() {
+  if (!currentUser) return;
+
+  const generalProject = projects.find(project => project.name.trim().toLowerCase() === "general");
+  if (generalProject) return;
+
+  await createProject(currentUser.uid, {
+    name: "General",
+    description: "Default project for tasks that do not belong to another project.",
+    color: "#4f83cc",
+    estimatedHours: null
+  });
+
+  projects = await getProjects(currentUser.uid);
+}
 function renderProjectOptions() {
   const activeProjects = projects.filter(project => !project.archived);
   const generalProject = activeProjects.find(project => project.name.trim().toLowerCase() === "general");
 
   taskProjectInput.innerHTML = activeProjects.length
     ? activeProjects.map(project => `<option value="${project.id}">${escapeHTML(project.name)}</option>`).join("")
-    : `<option value="">Create a project named General first</option>`;
+    : `<option value="">No projects available</option>`;
 
   taskProjectInput.disabled = activeProjects.length === 0;
   addTaskButton.disabled = activeProjects.length === 0;
@@ -533,6 +554,10 @@ async function handleProjectAction(event) {
 // ============================================================================
 // TASK AND SUBTASK MANAGEMENT
 // ============================================================================
+function renderTaskOnboarding() {
+  const hasTasks = tasks.length > 0;
+  taskOnboarding.hidden = hasTasks;
+}
 function isTaskVisible(task) {
   const project = projects.find(project => project.id === task.projectId);
   return !task.archived && project && !project.archived;
@@ -2299,6 +2324,7 @@ function exportCSV() {
 // ============================================================================
 function render() {
   renderDashboard();
+  renderTaskOnboarding();
   renderTasks();
   renderTodayHistory();
   renderFullHistory();
@@ -2371,6 +2397,12 @@ function showAppView(viewId) {
 
 navButtons.forEach(button => {
   button.addEventListener("click", () => showAppView(button.dataset.view));
+});
+
+// Onboarding
+onboardingProjectsButton.addEventListener("click", () => {
+  showAppView("projectsView");
+  openProjectForm();
 });
 
 // Projects

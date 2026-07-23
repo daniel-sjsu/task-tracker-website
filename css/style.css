@@ -731,6 +731,32 @@
     resize: vertical;
     margin-bottom: 8px;
   }
+  .onboarding-card {
+    margin-bottom: 18px;
+    border-left: 4px solid var(--primary);
+  }
+  
+  .onboarding-card h3 {
+    margin-top: 0;
+    margin-bottom: 8px;
+  }
+  
+  .onboarding-card p {
+    margin: 5px 0;
+  }
+  
+  .onboarding-card p:last-child {
+    margin-bottom: 0;
+  }
+  .onboarding-steps {
+    display: grid;
+    gap: 6px;
+    margin: 14px 0;
+  }
+  
+  .onboarding-card button {
+    margin-top: 4px;
+  }
   @media (max-width: 700px) {
     .calendar-day {
       min-height: 56px;
