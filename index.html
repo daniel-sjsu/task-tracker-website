@@ -32,6 +32,7 @@
       <button class="nav-button" type="button" data-view="projectsView">Projects</button>
       <button class="nav-button" type="button" data-view="historyView">History</button>
       <button class="nav-button" type="button" data-view="reportsView">Reports</button>
+      <button class="nav-button" data-view="helpView" type="button">Help</button>
     </div>
   </nav>
 
@@ -385,6 +386,56 @@
             <canvas id="reportEstimateChart"></canvas>
           </div>
         </section>
+      </div>
+    </section>
+    <section id="helpView" class="app-view" hidden>
+      <div class="page-heading">
+        <div>
+          <h2>Help</h2>
+          <p>Learn how to organize work and track time.</p>
+        </div>
+      </div>
+    
+      <div class="help-sections">
+        <details open>
+          <summary>Getting Started</summary>
+          <p>A General project is created automatically. Create a task, optionally add a target, and press Start when you begin working.</p>
+        </details>
+    
+        <details>
+          <summary>Projects</summary>
+          <p>Projects group related tasks. Use the Projects tab to create, edit, archive, restore, or delete projects.</p>
+        </details>
+    
+        <details>
+          <summary>Tasks and Timers</summary>
+          <p>Start a task when you begin working and stop it when finished. Each completed timer creates a session in your history.</p>
+        </details>
+    
+        <details>
+          <summary>Subtasks</summary>
+          <p>Select an existing task from the Parent Task menu to create a subtask. Parent tasks summarize the target and tracked time of their subtasks.</p>
+        </details>
+    
+        <details>
+          <summary>Task Notes</summary>
+          <p>Expand Notes on a task card to record progress, decisions, problems, and remaining work.</p>
+        </details>
+    
+        <details>
+          <summary>History and Calendar</summary>
+          <p>Review previous sessions, edit manually recorded time, filter by project or task, and select dates from the calendar.</p>
+        </details>
+    
+        <details>
+          <summary>Reports</summary>
+          <p>Use Today, This Week, This Month, All Time, or a custom date range to review tracked time and completed work.</p>
+        </details>
+    
+        <details>
+          <summary>Archiving and Deleting</summary>
+          <p>Archiving hides an item while preserving its history. Deleting permanently removes the item and may also remove its associated sessions.</p>
+        </details>
       </div>
     </section>
   </main>
