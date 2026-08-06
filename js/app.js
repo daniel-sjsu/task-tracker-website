@@ -1048,8 +1048,6 @@ async function completeTask(id) {
     if (state.runningTaskId === id) return;
   }
 
-  const selectedTag = getTagSnapshot(task.tagId);
-
   try {
     await completeTaskInFirestore(currentUser.uid, id);
     tasks = await getTasks(currentUser.uid);
@@ -1791,6 +1789,9 @@ async function stopTask() {
     console.error("The running task's project could not be found.");
     return;
   }
+
+  const selectedTag = getTagSnapshot(task.tagId);
+
 
   try {
     await createSession(currentUser.uid, {
