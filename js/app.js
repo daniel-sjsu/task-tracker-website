@@ -1048,6 +1048,8 @@ async function completeTask(id) {
     if (state.runningTaskId === id) return;
   }
 
+  const selectedTag = getTagSnapshot(task.tagId);
+
   try {
     await completeTaskInFirestore(currentUser.uid, id);
     tasks = await getTasks(currentUser.uid);
@@ -1796,6 +1798,8 @@ async function stopTask() {
       taskId: task.id,
       projectName: project.name,
       taskName: task.name,
+      tagId: selectedTag.tagId,
+      tagName: selectedTag.tagName,
       start: new Date(state.startTime),
       end: new Date(endTime),
       note: "",
@@ -1822,6 +1826,33 @@ async function stopTask() {
 // ============================================================================
 // SESSION MANAGEMENT
 // ============================================================================
+function renderManualSessionTagOptions(selectedTagId) {
+  const task = tasks.find(task => task.id === manualSessionTaskInput.value);
+  const resolvedTagId = selectedTagId !== undefined ? selectedTagId : task?.tagId || "";
+  const activeTags = tags.filter(tag => !tag.archived);
+  const selectedTag = tags.find(tag => tag.id === resolvedTagId);
+
+  const availableTags = [...activeTags];
+
+  if (selectedTag?.archived && !availableTags.some(tag => tag.id === selectedTag.id)) {
+    availableTags.push(selectedTag);
+  }
+
+  manualSessionTagInput.innerHTML = `
+    <option value="">No tag</option>
+    ${availableTags.map(tag => `
+      <option value="${tag.id}">
+        ${escapeHTML(tag.name)}${tag.archived ? " (Archived)" : ""}
+      </option>
+    `).join("")}
+  `;
+
+  if (availableTags.some(tag => tag.id === resolvedTagId)) {
+    manualSessionTagInput.value = resolvedTagId;
+  } else {
+    manualSessionTagInput.value = "";
+  }
+}
 function renderManualSessionProjectOptions() {
   const activeProjects = projects.filter(project => !project.archived);
 
@@ -1846,6 +1877,7 @@ function renderManualSessionTaskOptions() {
 
   manualSessionTaskInput.disabled = projectTasks.length === 0;
   saveManualSessionButton.disabled = projectTasks.length === 0;
+  renderManualSessionTagOptions();
 }
 
 function openManualSessionForm() {
@@ -1867,6 +1899,7 @@ function closeManualSessionForm() {
   manualSessionForm.hidden = true;
   manualSessionStartInput.value = "";
   manualSessionEndInput.value = "";
+  manualSessionTagInput.value = "";
   manualSessionNoteInput.value = "";
   saveManualSessionButton.textContent = "Save Session";
 }
@@ -1878,6 +1911,7 @@ async function saveManualSession() {
   const taskId = manualSessionTaskInput.value;
   const project = projects.find(project => project.id === projectId);
   const task = tasks.find(task => task.id === taskId);
+  const selectedTag = getTagSnapshot(manualSessionTagInput.value);
   const start = new Date(manualSessionStartInput.value);
   const end = new Date(manualSessionEndInput.value);
   const note = manualSessionNoteInput.value.trim();
@@ -1905,6 +1939,8 @@ async function saveManualSession() {
       taskId: task.id,
       projectName: project.name,
       taskName: task.name,
+      tagId: selectedTag.tagId,
+      tagName: selectedTag.tagName,
       start,
       end,
       note,
@@ -1941,6 +1977,7 @@ function editSession(sessionId) {
   manualSessionProjectInput.value = session.projectId;
   renderManualSessionTaskOptions();
   manualSessionTaskInput.value = session.taskId;
+  renderManualSessionTagOptions(session.tagId || "");
 
   manualSessionStartInput.value = formatDateTimeLocal(new Date(session.start));
   manualSessionEndInput.value = formatDateTimeLocal(new Date(session.end));
@@ -2715,6 +2752,10 @@ goalInput.addEventListener("keydown", event => {
 });
 activeTasksContainer.addEventListener("click", handleTaskNoteAction);
 completedTasksContainer.addEventListener("click", handleTaskNoteAction);
+
+manualSessionTaskInput.addEventListener("change", () => {
+  renderManualSessionTagOptions();
+});
 
 // Sessions
 addManualSessionButton.addEventListener("click", openManualSessionForm);
