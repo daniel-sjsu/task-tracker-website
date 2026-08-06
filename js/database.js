@@ -78,6 +78,104 @@ export async function deleteProjectAndData(userId, projectId) {
   await deleteDoc(doc(db, "users", userId, "projects", projectId));
 }
 
+export async function createTag(userId, tagData) {
+  if (!userId) throw new Error("A signed-in user is required.");
+
+  const name = tagData.name?.trim();
+  if (!name) throw new Error("A tag name is required.");
+
+  const tag = {
+    name,
+    color: tagData.color || "#4f83cc",
+    archived: false,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  };
+
+  const tagsCollection = collection(db, "users", userId, "tags");
+  const tagDocument = await addDoc(tagsCollection, tag);
+
+  return tagDocument.id;
+}
+
+export async function getTags(userId) {
+  if (!userId) throw new Error("A signed-in user is required.");
+
+  const tagsCollection = collection(db, "users", userId, "tags");
+  const tagsQuery = query(tagsCollection, orderBy("createdAt", "asc"));
+  const snapshot = await getDocs(tagsQuery);
+
+  return snapshot.docs.map(tagDocument => ({
+    id: tagDocument.id,
+    ...tagDocument.data()
+  }));
+}
+
+export async function updateTag(userId, tagId, changes) {
+  if (!userId) throw new Error("A signed-in user is required.");
+  if (!tagId) throw new Error("A tag ID is required.");
+
+  const allowedChanges = {};
+
+  if (changes.name !== undefined) {
+    const name = changes.name.trim();
+
+    if (!name) {
+      throw new Error("A tag name is required.");
+    }
+
+    allowedChanges.name = name;
+  }
+
+  if (changes.color !== undefined) {
+    allowedChanges.color = changes.color;
+  }
+
+  if (changes.archived !== undefined) {
+    allowedChanges.archived = changes.archived;
+  }
+
+  allowedChanges.updatedAt = serverTimestamp();
+
+  const tagReference = doc(db, "users", userId, "tags", tagId);
+  await updateDoc(tagReference, allowedChanges);
+}
+
+export async function archiveTag(userId, tagId) {
+  await updateTag(userId, tagId, {
+    archived: true
+  });
+}
+
+export async function restoreTag(userId, tagId) {
+  await updateTag(userId, tagId, {
+    archived: false
+  });
+}
+
+export async function deleteUnusedTag(userId, tagId) {
+  if (!userId) throw new Error("A signed-in user is required.");
+  if (!tagId) throw new Error("A tag ID is required.");
+
+  const tasksReference = collection(db, "users", userId, "tasks");
+  const sessionsReference = collection(db, "users", userId, "sessions");
+
+  const tasksQuery = query(tasksReference, where("tagId", "==", tagId));
+  const sessionsQuery = query(sessionsReference, where("tagId", "==", tagId));
+
+  const [tasksSnapshot, sessionsSnapshot] = await Promise.all([
+    getDocs(tasksQuery),
+    getDocs(sessionsQuery)
+  ]);
+
+  if (!tasksSnapshot.empty || !sessionsSnapshot.empty) {
+    throw new Error("This tag is still assigned to tasks or sessions and must be archived instead.");
+  }
+
+  const tagReference = doc(db, "users", userId, "tags", tagId);
+  await deleteDoc(tagReference);
+}
+
 export async function createTask(userId, projectId, taskData) {
   if (!userId) throw new Error("A signed-in user is required.");
   if (!projectId) throw new Error("A project ID is required.");
@@ -94,6 +192,8 @@ export async function createTask(userId, projectId, taskData) {
     name: taskData.name.trim(),
     description: taskData.description?.trim() || "",
     targetHours,
+    tagId: taskData.tagId ?? null,
+    tagName: taskData.tagName?.trim() || null,
     completed: false,
     archived: false,
     createdAt: serverTimestamp(),
@@ -134,6 +234,8 @@ export async function updateTask(userId, taskId, changes) {
   if (changes.description !== undefined) allowedChanges.description = changes.description.trim();
   if (changes.projectId !== undefined) allowedChanges.projectId = changes.projectId;
   if (changes.parentTaskId !== undefined) allowedChanges.parentTaskId = changes.parentTaskId;
+  if (changes.tagId !== undefined) allowedChanges.tagId = changes.tagId;
+  if (changes.tagName !== undefined) allowedChanges.tagName = changes.tagName?.trim() || null;
 
   if (changes.targetHours !== undefined) {
     if (changes.targetHours !== null && (!Number.isFinite(changes.targetHours) || changes.targetHours < 0)) {
@@ -228,6 +330,8 @@ export async function createSession(userId, sessionData) {
     taskId: sessionData.taskId,
     projectName: sessionData.projectName?.trim() || "",
     taskName: sessionData.taskName?.trim() || "",
+    tagId: sessionData.tagId ?? null,
+    tagName: sessionData.tagName?.trim() || null,
     start,
     end,
     durationSeconds,
@@ -279,6 +383,8 @@ export async function updateSession(userId, sessionId, changes) {
   if (changes.taskId !== undefined) allowedChanges.taskId = changes.taskId;
   if (changes.projectName !== undefined) allowedChanges.projectName = changes.projectName.trim();
   if (changes.taskName !== undefined) allowedChanges.taskName = changes.taskName.trim();
+  if (changes.tagId !== undefined) allowedChanges.tagId = changes.tagId;
+  if (changes.tagName !== undefined) allowedChanges.tagName = changes.tagName?.trim() || null;
   if (changes.note !== undefined) allowedChanges.note = changes.note.trim();
   if (changes.source !== undefined) allowedChanges.source = changes.source;
 
