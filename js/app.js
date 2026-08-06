@@ -4,6 +4,7 @@
 import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from "./firebase.js";
 import { createProject, getProjects, deleteProjectAndData, updateProject as updateProjectInFirestore, archiveProject as archiveProjectInFirestore, restoreProject as restoreProjectInFirestore, moveTaskSessionsToProject, 
          createTask, getTasks, updateTask as updateTaskInFirestore, completeTask as completeTaskInFirestore, reopenTask, deleteTask as deleteTaskFromFirestore, deleteSessionsByTask, archiveTask as archiveTaskInFirestore, restoreArchivedTask as restoreArchivedTaskInFirestore, createTaskNote, getTaskNotes, updateTaskNote, deleteTaskNote,
+         createTag, getTags, updateTag as updateTagInFirestore, archiveTag as archiveTagInFirestore, restoreTag as restoreTagInFirestore, deleteUnusedTag,
          getSessions, createSession, updateSession as updateSessionInFirestore, deleteSession as deleteSessionFromFirestore, saveTimerState, listenToTimerState } from "./database.js";
 
 // ============================================================================
@@ -13,6 +14,8 @@ let projects = [];
 let tasks = [];
 let sessions = [];
 let taskNotes = [];
+let tags = [];
+
 let state = {
   runningTaskId: null,
   runningProjectId: null,
@@ -25,6 +28,7 @@ let editingProjectId = null;
 let editingTaskId = null;
 let editingTaskNoteId = null;
 let editingSessionId = null;
+let editingTagId = null;
 
 let calendarDate = new Date();
 calendarDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1);
@@ -70,6 +74,18 @@ const manualSessionEndInput = document.getElementById("manualSessionEndInput");
 const manualSessionNoteInput = document.getElementById("manualSessionNoteInput");
 const saveManualSessionButton = document.getElementById("saveManualSessionButton");
 const cancelManualSessionButton = document.getElementById("cancelManualSessionButton");
+
+const newTagButton = document.getElementById("newTagButton");
+const tagFormCard = document.getElementById("tagFormCard");
+const tagFormHeading = document.getElementById("tagFormHeading");
+const tagNameInput = document.getElementById("tagNameInput");
+const tagColorInput = document.getElementById("tagColorInput");
+const saveTagButton = document.getElementById("saveTagButton");
+const cancelTagButton = document.getElementById("cancelTagButton");
+const activeTagsContainer = document.getElementById("activeTagsContainer");
+const archivedTagsContainer = document.getElementById("archivedTagsContainer");
+const taskTagInput = document.getElementById("taskTagInput");
+const manualSessionTagInput = document.getElementById("manualSessionTagInput");
 
 const dashboardContainer = document.getElementById("dashboard");
 const todayHistoryContainer = document.getElementById("history");
@@ -221,10 +237,12 @@ async function loadFirestoreData() {
     projects = await getProjects(currentUser.uid);
     await ensureGeneralProject();
 
+    tags = await getTags(currentUser.uid);
     tasks = await getTasks(currentUser.uid);
     sessions = normalizeSessions(await getSessions(currentUser.uid));
     taskNotes = normalizeTaskNotes(await getTaskNotes(currentUser.uid));
     renderProjects();
+    renderTags();
     renderProjectOptions();
     renderManualSessionProjectOptions();
     renderHistoryFilterOptions();
@@ -547,6 +565,205 @@ async function handleProjectAction(event) {
       break;
     case "delete":
       await deleteProject(projectId);
+      break;
+  }
+}
+
+// ============================================================================
+// TAG MANAGEMENT
+// ============================================================================
+function openTagForm(tag = null) {
+  editingTagId = tag?.id || null;
+  tagNameInput.value = tag?.name || "";
+  tagColorInput.value = tag?.color || "#4f83cc";
+  tagFormHeading.textContent = editingTagId ? "Edit Tag" : "Create Tag";
+  saveTagButton.textContent = editingTagId ? "Save Changes" : "Create Tag";
+  tagFormCard.hidden = false;
+  tagNameInput.focus();
+}
+
+function closeTagForm() {
+  editingTagId = null;
+  tagNameInput.value = "";
+  tagColorInput.value = "#4f83cc";
+  tagFormHeading.textContent = "Create Tag";
+  saveTagButton.textContent = "Create Tag";
+  tagFormCard.hidden = true;
+}
+
+function editTag(tagId) {
+  const tag = tags.find(tag => tag.id === tagId);
+  if (!tag) return;
+  openTagForm(tag);
+}
+
+function tagNameExists(name, excludedTagId = null) {
+  const normalizedName = name.trim().toLowerCase();
+
+  return tags.some(tag => {
+    if (tag.id === excludedTagId) return false;
+    return tag.name.trim().toLowerCase() === normalizedName;
+  });
+}
+
+async function saveTag() {
+  if (!currentUser) return;
+
+  const name = tagNameInput.value.trim();
+  const color = tagColorInput.value;
+
+  if (!name) {
+    alert("Enter a tag name.");
+    return;
+  }
+
+  if (tagNameExists(name, editingTagId)) {
+    alert("A tag with that name already exists.");
+    return;
+  }
+
+  try {
+    saveTagButton.disabled = true;
+
+    if (editingTagId) {
+      await updateTagInFirestore(currentUser.uid, editingTagId, {
+        name,
+        color
+      });
+    } else {
+      await createTag(currentUser.uid, {
+        name,
+        color
+      });
+    }
+
+    tags = await getTags(currentUser.uid);
+    closeTagForm();
+    renderTags();
+  } catch (error) {
+    console.error(editingTagId ? "Failed to update tag:" : "Failed to create tag:", error);
+    alert(editingTagId ? "The tag could not be updated." : "The tag could not be created.");
+  } finally {
+    saveTagButton.disabled = false;
+  }
+}
+
+async function archiveTag(tagId) {
+  if (!currentUser) return;
+
+  const tag = tags.find(tag => tag.id === tagId);
+  if (!tag) return;
+
+  if (!window.confirm(`Archive "${tag.name}"? Existing task and session assignments will be preserved.`)) return;
+
+  try {
+    await archiveTagInFirestore(currentUser.uid, tagId);
+    tags = await getTags(currentUser.uid);
+    renderTags();
+  } catch (error) {
+    console.error("Failed to archive tag:", error);
+    alert("The tag could not be archived.");
+  }
+}
+
+async function restoreTag(tagId) {
+  if (!currentUser) return;
+
+  try {
+    await restoreTagInFirestore(currentUser.uid, tagId);
+    tags = await getTags(currentUser.uid);
+    renderTags();
+  } catch (error) {
+    console.error("Failed to restore tag:", error);
+    alert("The tag could not be restored.");
+  }
+}
+
+async function deleteTag(tagId) {
+  if (!currentUser) return;
+
+  const tag = tags.find(tag => tag.id === tagId);
+  if (!tag) return;
+
+  if (!window.confirm(`Permanently delete "${tag.name}"?\n\nThis is only allowed when the tag has never been assigned.`)) return;
+
+  try {
+    await deleteUnusedTag(currentUser.uid, tagId);
+    tags = await getTags(currentUser.uid);
+    renderTags();
+  } catch (error) {
+    console.error("Failed to delete tag:", error);
+
+    if (error.message?.includes("still assigned")) {
+      alert(`"${tag.name}" is attached to one or more tasks or sessions. Archive it instead.`);
+    } else {
+      alert("The tag could not be deleted.");
+    }
+  }
+}
+
+function renderTags() {
+  const activeTags = tags.filter(tag => !tag.archived);
+  const archivedTags = tags.filter(tag => tag.archived);
+
+  activeTagsContainer.innerHTML = activeTags.length
+    ? activeTags.map(tag => `
+        <div class="tag-row">
+          <div class="tag-row-details">
+            <span class="tag-color" style="background:${tag.color}"></span>
+            <strong>${escapeHTML(tag.name)}</strong>
+          </div>
+
+          <div class="tag-row-actions">
+            <button type="button" data-tag-action="edit" data-tag-id="${tag.id}">Edit</button>
+            <button type="button" data-tag-action="archive" data-tag-id="${tag.id}">Archive</button>
+            <button type="button" data-tag-action="delete" data-tag-id="${tag.id}">Delete</button>
+          </div>
+        </div>
+      `).join("")
+    : `
+      <div class="empty-state">
+        <h3>No tags yet</h3>
+        <p>Create a tag such as Meetings, Programming, or Fieldwork.</p>
+      </div>
+    `;
+
+  archivedTagsContainer.innerHTML = archivedTags.length
+    ? archivedTags.map(tag => `
+        <div class="tag-row archived">
+          <div class="tag-row-details">
+            <span class="tag-color" style="background:${tag.color}"></span>
+            <strong>${escapeHTML(tag.name)}</strong>
+          </div>
+
+          <div class="tag-row-actions">
+            <button type="button" data-tag-action="restore" data-tag-id="${tag.id}">Restore</button>
+            <button type="button" data-tag-action="delete" data-tag-id="${tag.id}">Delete</button>
+          </div>
+        </div>
+      `).join("")
+    : `<p class="empty-state">No archived tags.</p>`;
+}
+
+async function handleTagAction(event) {
+  const button = event.target.closest("button[data-tag-action]");
+  if (!button) return;
+
+  const action = button.dataset.tagAction;
+  const tagId = button.dataset.tagId;
+
+  switch (action) {
+    case "edit":
+      editTag(tagId);
+      break;
+    case "archive":
+      await archiveTag(tagId);
+      break;
+    case "restore":
+      await restoreTag(tagId);
+      break;
+    case "delete":
+      await deleteTag(tagId);
       break;
   }
 }
@@ -2325,6 +2542,7 @@ function exportCSV() {
 function render() {
   renderDashboard();
   renderTaskOnboarding();
+  renderTags();
   renderTasks();
   renderTodayHistory();
   renderFullHistory();
@@ -2365,6 +2583,8 @@ onAuthStateChanged(auth, async user => {
     tasks = [];
     sessions = [];
     taskNotes = [];
+    tags = [];
+    
     state = {
       runningTaskId: null,
       runningProjectId: null,
@@ -2372,6 +2592,8 @@ onAuthStateChanged(auth, async user => {
     };
     editingTaskNoteId = null;
     currentUser = null;
+    editingTagId = null;
+
     userStatus.textContent = "Not signed in";
     loginButton.hidden = false;
     logoutButton.hidden = true;
@@ -2415,6 +2637,16 @@ projectNameInput.addEventListener("keydown", event => {
   if (event.key === "Enter") saveProject();
 });
 
+// Tags
+newTagButton.addEventListener("click", () => openTagForm());
+cancelTagButton.addEventListener("click", closeTagForm);
+saveTagButton.addEventListener("click", saveTag);
+activeTagsContainer.addEventListener("click", handleTagAction);
+archivedTagsContainer.addEventListener("click", handleTagAction);
+
+tagNameInput.addEventListener("keydown", event => {
+  if (event.key === "Enter") saveTag();
+});
 
 // Tasks
 addTaskButton.addEventListener("click", addTask);
