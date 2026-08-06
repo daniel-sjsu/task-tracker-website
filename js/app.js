@@ -16,6 +16,7 @@ let sessions = [];
 let taskNotes = [];
 let tags = [];
 
+
 let state = {
   runningTaskId: null,
   runningProjectId: null,
@@ -29,6 +30,7 @@ let editingTaskId = null;
 let editingTaskNoteId = null;
 let editingSessionId = null;
 let editingTagId = null;
+let reportTagChart = null;
 
 let calendarDate = new Date();
 calendarDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1);
@@ -111,6 +113,8 @@ const reportDailyAverage = document.getElementById("reportDailyAverage");
 const reportCompletedTasks = document.getElementById("reportCompletedTasks");
 const reportProjectChartCanvas = document.getElementById("reportProjectChart");
 const reportEstimateChartCanvas = document.getElementById("reportEstimateChart");
+const reportTagFilter = document.getElementById("reportTagFilter");
+const reportTagChartCanvas = document.getElementById("reportTagChart");
 
 const loginButton = document.getElementById("loginButton");
 const logoutButton = document.getElementById("logoutButton");
@@ -760,6 +764,7 @@ function renderTags() {
     : `<p class="empty-state">No archived tags.</p>`;
   renderTaskTagOptions(taskTagInput.value);
   renderHistoryTagFilterOptions();
+  renderReportTagFilterOptions();
 }
 
 async function handleTagAction(event) {
@@ -2440,6 +2445,23 @@ function renderWeekly() {
 // ============================================================================
 // REPORTS
 // ============================================================================
+function renderReportTagFilterOptions() {
+  const selectedTagId = reportTagFilter.value;
+
+  reportTagFilter.innerHTML = `
+    <option value="">All tags</option>
+    <option value="untagged">Untagged</option>
+    ${tags.map(tag => `
+      <option value="${tag.id}">
+        ${escapeHTML(tag.name)}${tag.archived ? " (Archived)" : ""}
+      </option>
+    `).join("")}
+  `;
+
+  if (selectedTagId === "untagged" || tags.some(tag => tag.id === selectedTagId)) {
+    reportTagFilter.value = selectedTagId;
+  }
+}
 function setReportCurrentMonth() {
   const now = new Date();
   const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -2470,10 +2492,15 @@ function setReportCurrentWeek() {
 function getReportSessions() {
   const startTime = getLocalDayStart(reportStartDate.value);
   const endTime = getLocalDayEnd(reportEndDate.value);
+  const tagId = reportTagFilter.value;
 
   return sessions.filter(session => {
     if (startTime !== null && session.start < startTime) return false;
     if (endTime !== null && session.start > endTime) return false;
+
+    if (tagId === "untagged" && session.tagId) return false;
+    if (tagId && tagId !== "untagged" && session.tagId !== tagId) return false;
+
     return true;
   });
 }
@@ -2512,6 +2539,30 @@ function getReportProjectTotals(reportSessions) {
     }
 
     totals[projectId].seconds += Number(session.durationSeconds || 0);
+  });
+
+  return Object.values(totals).sort((a, b) => b.seconds - a.seconds);
+}
+
+function getReportTagTotals(reportSessions) {
+  const totals = {};
+
+  reportSessions.forEach(session => {
+    const tagId = session.tagId || "untagged";
+    const tag = session.tagId ? tags.find(tag => tag.id === session.tagId) : null;
+    const name = tag?.name || session.tagName || "Untagged";
+    const color = tag?.color || "#777777";
+
+    if (!totals[tagId]) {
+      totals[tagId] = {
+        tagId,
+        name,
+        color,
+        seconds: 0
+      };
+    }
+
+    totals[tagId].seconds += Number(session.durationSeconds || 0);
   });
 
   return Object.values(totals).sort((a, b) => b.seconds - a.seconds);
@@ -2640,12 +2691,56 @@ function renderReportEstimateChart(projectTotals) {
 function renderReports() {
   const reportSessions = getReportSessions();
   const projectTotals = getReportProjectTotals(reportSessions);
+  const tagTotals = getReportTagTotals(reportSessions);
 
   renderReportSummary(reportSessions, projectTotals);
   renderReportProjectChart(projectTotals);
   renderReportEstimateChart(projectTotals);
+  renderReportTagChart(tagTotals);
 }
 
+
+function renderReportTagChart(tagTotals) {
+  if (reportTagChart) reportTagChart.destroy();
+
+  reportTagChart = new Chart(reportTagChartCanvas, {
+    type: "bar",
+    data: {
+      labels: tagTotals.map(tag => tag.name),
+      datasets: [{
+        label: "Tracked Hours",
+        data: tagTotals.map(tag => tag.seconds / 3600),
+        backgroundColor: tagTotals.map(tag => tag.color)
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: "y",
+      scales: {
+        x: {
+          beginAtZero: true,
+          title: {
+            display: true,
+            text: "Hours"
+          }
+        }
+      },
+      plugins: {
+        legend: {
+          display: false
+        },
+        tooltip: {
+          callbacks: {
+            label(context) {
+              return `Tracked: ${formatHours(context.raw)}`;
+            }
+          }
+        }
+      }
+    }
+  });
+}
 // ============================================================================
 // EXPORT
 // ============================================================================
@@ -2836,6 +2931,7 @@ calendarContainer.addEventListener("click", handleCalendarAction);
 // Reports
 reportStartDate.addEventListener("change", renderReports);
 reportEndDate.addEventListener("change", renderReports);
+reportTagFilter.addEventListener("change", renderReports);
 reportTodayButton.addEventListener("click", () => {
   setReportToday();
   renderReports();
@@ -2854,6 +2950,8 @@ reportAllTimeButton.addEventListener("click", () => {
   reportEndDate.value = "";
   renderReports();
 });
+
+
 
 
 // Export

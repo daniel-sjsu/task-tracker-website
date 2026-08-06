@@ -419,6 +419,13 @@
           <input id="reportEndDate" type="date">
         </label>
 
+        <label>
+          <span>Tag</span>
+          <select id="reportTagFilter">
+            <option value="">All tags</option>
+          </select>
+        </label>
+
         <button id="reportTodayButton" class="secondary-button" type="button">Today</button>
         <button id="reportCurrentWeekButton" class="secondary-button" type="button">This Week</button>
         <button id="reportCurrentMonthButton" class="secondary-button" type="button">Current Month</button>
@@ -470,6 +477,18 @@
 
           <div class="chart-container">
             <canvas id="reportEstimateChart"></canvas>
+          </div>
+        </section>
+        <section class="card">
+          <div class="section-heading">
+            <div>
+              <h3>Hours by Tag</h3>
+              <p>Tracked time grouped by activity category.</p>
+            </div>
+          </div>
+        
+          <div class="chart-container">
+            <canvas id="reportTagChart"></canvas>
           </div>
         </section>
       </div>
