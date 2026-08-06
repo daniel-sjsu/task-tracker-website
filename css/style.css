@@ -757,6 +757,22 @@
   .onboarding-card button {
     margin-top: 4px;
   }
+  .task-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 6px;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+  
+  .task-tag span {
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    flex-shrink: 0;
+  }
   @media (max-width: 700px) {
     .calendar-day {
       min-height: 56px;

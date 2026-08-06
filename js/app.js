@@ -306,6 +306,7 @@ function renderProjectOptions() {
     taskProjectInput.value = generalProject.id;
   }
   renderTaskParentOptions();
+  renderTaskTagOptions(taskTagInput.value);
 }
 
 function openProjectForm(project = null) {
@@ -743,6 +744,7 @@ function renderTags() {
         </div>
       `).join("")
     : `<p class="empty-state">No archived tags.</p>`;
+  renderTaskTagOptions(taskTagInput.value);
 }
 
 async function handleTagAction(event) {
@@ -766,6 +768,42 @@ async function handleTagAction(event) {
       await deleteTag(tagId);
       break;
   }
+}
+
+function renderTaskTagOptions(selectedTagId = "") {
+  const activeTags = tags.filter(tag => !tag.archived);
+
+  taskTagInput.innerHTML = `
+    <option value="">No tag</option>
+    ${activeTags.map(tag => `<option value="${tag.id}">${escapeHTML(tag.name)}</option>`).join("")}
+  `;
+
+  if (activeTags.some(tag => tag.id === selectedTagId)) {
+    taskTagInput.value = selectedTagId;
+  }
+}
+
+function getTagSnapshot(tagId) {
+  if (!tagId) {
+    return {
+      tagId: null,
+      tagName: null
+    };
+  }
+
+  const tag = tags.find(tag => tag.id === tagId);
+
+  if (!tag) {
+    return {
+      tagId: null,
+      tagName: null
+    };
+  }
+
+  return {
+    tagId: tag.id,
+    tagName: tag.name
+  };
 }
 
 // ============================================================================
@@ -854,6 +892,7 @@ function openTaskEditor(taskId) {
   editingTaskId = task.id;
   taskProjectInput.value = task.projectId;
   renderTaskParentOptions(task.parentTaskId || "");
+  renderTaskTagOptions(task.tagId || "");
   nameInput.value = task.name;
 
   const hasSubtasks = taskHasSubtasks(task.id);
@@ -878,6 +917,7 @@ function resetTaskForm() {
   if (generalProject) taskProjectInput.value = generalProject.id;
 
   renderTaskParentOptions();
+  renderTaskTagOptions();
 }
 
 async function addTask() {
@@ -888,6 +928,7 @@ async function addTask() {
   const projectId = taskProjectInput.value || generalProject?.id;
   const targetHours = goalInput.value === "" ? null : Number(goalInput.value);
   const parentTaskId = taskParentInput.value || null;
+  const selectedTag = getTagSnapshot(taskTagInput.value);
 
   if (!name) {
     alert("Enter a task name.");
@@ -948,7 +989,9 @@ async function addTask() {
         name,
         projectId,
         parentTaskId,
-        targetHours
+        targetHours,
+        tagId: selectedTag.tagId,
+        tagName: selectedTag.tagName
       });
     
       if (projectChanged && newProject) {
@@ -967,7 +1010,9 @@ async function addTask() {
         name,
         description: "",
         targetHours,
-        parentTaskId
+        parentTaskId,
+        tagId: selectedTag.tagId,
+        tagName: selectedTag.tagName
       });
     }
 
@@ -1115,6 +1160,13 @@ function createTaskElement(task, isSubtask = false) {
     : project
       ? `<div class="task-project"><span style="background:${project.color}"></span>${escapeHTML(project.name)}</div>`
       : "";
+  const taskTag = task.tagId ? tags.find(tag => tag.id === task.tagId) : null;
+  const taskTagName = taskTag?.name || task.tagName || null;
+  const taskTagColor = taskTag?.color || "#777777";
+  
+  const tagLabel = taskTagName
+    ? `<div class="task-tag"><span style="background:${taskTagColor}"></span>${escapeHTML(taskTagName)}</div>`
+    : "";
 
   const subtasks = getSubtasks(task.id);
   const hasSubtasks = subtasks.length > 0;
@@ -1197,6 +1249,7 @@ function createTaskElement(task, isSubtask = false) {
   `;
   taskElement.innerHTML = `
     ${relationshipLabel}
+    ${tagLabel}
     <h3>${escapeHTML(task.name)}</h3>
     ${targetDisplay}
     ${trackedDisplay}
