@@ -96,6 +96,7 @@ const historyProjectFilter = document.getElementById("historyProjectFilter");
 const historyTaskFilter = document.getElementById("historyTaskFilter");
 const historyStartDate = document.getElementById("historyStartDate");
 const historyEndDate = document.getElementById("historyEndDate");
+const historyTagFilter = document.getElementById("historyTagFilter");
 const calendarContainer = document.getElementById("calendarContainer");
 
 const reportStartDate = document.getElementById("reportStartDate");
@@ -208,7 +209,20 @@ function normalizeSessions(sessionDocuments) {
     durationSeconds: Number(session.durationSeconds || 0)
   }));
 }
+function getSessionTagLabel(session) {
+  if (!session.tagId && !session.tagName) return "";
 
+  const tag = session.tagId ? tags.find(tag => tag.id === session.tagId) : null;
+  const name = tag?.name || session.tagName || "Unknown tag";
+  const color = tag?.color || "#777777";
+
+  return `
+    <div class="session-tag">
+      <span style="background:${color}"></span>
+      ${escapeHTML(name)}
+    </div>
+  `;
+}
 // ============================================================================
 // AUTHENTICATION AND DATA LOADING
 // ============================================================================
@@ -745,6 +759,7 @@ function renderTags() {
       `).join("")
     : `<p class="empty-state">No archived tags.</p>`;
   renderTaskTagOptions(taskTagInput.value);
+  renderHistoryTagFilterOptions();
 }
 
 async function handleTagAction(event) {
@@ -2050,10 +2065,15 @@ function getTodaySessions() {
 function getProjectTaskFilteredSessions() {
   const projectId = historyProjectFilter.value;
   const taskId = historyTaskFilter.value;
+  const tagId = historyTagFilter.value;
 
   return sessions.filter(session => {
     if (projectId && session.projectId !== projectId) return false;
     if (taskId && session.taskId !== taskId) return false;
+
+    if (tagId === "untagged" && session.tagId) return false;
+    if (tagId && tagId !== "untagged" && session.tagId !== tagId) return false;
+
     return true;
   });
 }
@@ -2092,8 +2112,27 @@ function renderHistoryFilterOptions() {
   if (projects.some(project => project.id === selectedProjectId)) {
     historyProjectFilter.value = selectedProjectId;
   }
-
+  
   renderHistoryTaskFilterOptions(selectedTaskId);
+  renderHistoryTagFilterOptions();
+}
+
+function renderHistoryTagFilterOptions() {
+  const selectedTagId = historyTagFilter.value;
+
+  historyTagFilter.innerHTML = `
+    <option value="">All tags</option>
+    <option value="untagged">Untagged</option>
+    ${tags.map(tag => `
+      <option value="${tag.id}">
+        ${escapeHTML(tag.name)}${tag.archived ? " (Archived)" : ""}
+      </option>
+    `).join("")}
+  `;
+
+  if (selectedTagId === "untagged" || tags.some(tag => tag.id === selectedTagId)) {
+    historyTagFilter.value = selectedTagId;
+  }
 }
 
 function renderHistoryTaskFilterOptions(selectedTaskId = "") {
@@ -2129,6 +2168,7 @@ function renderTodayHistory() {
         <div class="session-details">
           <div class="session-project">${escapeHTML(session.projectName || "Unknown project")}</div>
           <div class="session-task">${escapeHTML(session.taskName || "Unknown task")}</div>
+          ${getSessionTagLabel(session)}
           <div class="session-time">${startTime} - ${endTime} · ${formatDuration(session.durationSeconds)}</div>
         </div>
 
@@ -2175,6 +2215,7 @@ function renderFullHistory() {
         <div class="session-details">
           <div class="session-project">${escapeHTML(session.projectName || "Unknown project")}</div>
           <div class="session-task">${escapeHTML(session.taskName || "Unknown task")}</div>
+          ${getSessionTagLabel(session)}
           <div class="session-time">${dateLabel} · ${startTime}–${endTime} · ${formatDuration(session.durationSeconds)}</div>
           ${session.note ? `<div class="session-note">${escapeHTML(session.note)}</div>` : ""}
         </div>
@@ -2782,6 +2823,10 @@ historyStartDate.addEventListener("change", () => {
 });
 historyEndDate.addEventListener("change", () => {
   validateHistoryDateRange();
+  renderCalendar();
+});
+historyTagFilter.addEventListener("change", () => {
+  renderFullHistory();
   renderCalendar();
 });
 
