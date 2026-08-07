@@ -794,6 +794,73 @@
     gap: 8px;
     align-items: center;
   }
+
+  .parent-task-hierarchy-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+  .parent-task-toggle {
+  margin: 0;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.parent-task-hierarchy-meta {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+
+.completed-project-group {
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.completed-project-summary {
+  padding: 14px 16px;
+  cursor: pointer;
+}
+
+.completed-project-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.completed-project-meta {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+
+.completed-project-task-list {
+  padding: 14px;
+}
+
+  @media (max-width: 600px) {
+    .parent-task-hierarchy-row {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+  }
   @media (max-width: 700px) {
     .calendar-day {
       min-height: 56px;

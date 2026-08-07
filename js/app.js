@@ -41,6 +41,7 @@ let reportProjectChart = null;
 let reportEstimateChart = null;
 const expandedActiveProjects = new Set();
 const expandedParentTasks = new Set();
+const expandedCompletedProjects = new Set();
 
 // ============================================================================
 // DOM REFERENCES
@@ -56,7 +57,8 @@ const taskParentInput = document.getElementById("taskParentInput");
 const addTaskButton = document.getElementById("addTaskButton");
 const activeTasksContainer = document.getElementById("tasks");
 const completedTasksContainer = document.getElementById("completedTasks");
-const completedTasksHeading = document.getElementById("completedTasksHeading");
+const expandAllCompletedProjectsButton = document.getElementById("expandAllCompletedProjectsButton");
+const collapseAllCompletedProjectsButton = document.getElementById("collapseAllCompletedProjectsButton");
 
 const newProjectButton = document.getElementById("newProjectButton");
 const projectFormCard = document.getElementById("projectFormCard");
@@ -771,9 +773,9 @@ function renderTags() {
 }
 
 async function handleTagAction(event) {
-  const button = event.target.closest("button[data-tag-action]");
   if (!button) return;
-
+  
+  const button = event.target.closest("button[data-tag-action]");
   const action = button.dataset.tagAction;
   const tagId = button.dataset.tagId;
 
@@ -790,6 +792,15 @@ async function handleTagAction(event) {
     case "delete":
       await deleteTag(tagId);
       break;
+    case "toggle-subtasks":
+        if (expandedParentTasks.has(parentTaskId)) {
+          expandedParentTasks.delete(parentTaskId);
+        } else {
+          expandedParentTasks.add(parentTaskId);
+        }
+      
+        renderTasks();
+        break;
   }
 }
 
@@ -848,6 +859,27 @@ function getCompletedTimestamp(task) {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
+function getCompletedGroupTimestamp(task, completedProjectTasks) {
+  const childTimestamps = completedProjectTasks
+    .filter(child => child.parentTaskId === task.id)
+    .map(child => getCompletedTimestamp(child));
+
+  return Math.max(
+    getCompletedTimestamp(task),
+    ...childTimestamps,
+    0
+  );
+}
+
+function getCompletedTreeTimestamp(parentTask, projectTasks) {
+  const subtasks = projectTasks.filter(task => task.parentTaskId === parentTask.id);
+
+  return Math.max(
+    getCompletedTimestamp(parentTask),
+    ...subtasks.map(subtask => getCompletedTimestamp(subtask))
+  );
+}
+
 function renderTaskParentOptions(selectedParentId = "") {
   const projectId = taskProjectInput.value;
 
@@ -889,6 +921,63 @@ function getTaskDisplaySeconds(task) {
   const subtasks = getSubtasks(task.id);
   if (subtasks.length === 0) return ownSeconds;
   return ownSeconds + subtasks.reduce((total, subtask) => total + getCurrentSeconds(subtask), 0);
+}
+
+function getTaskUpdatedTimestamp(task) {
+  if (task.updatedAt?.toMillis) return task.updatedAt.toMillis();
+  if (task.createdAt?.toMillis) return task.createdAt.toMillis();
+
+  const updatedTimestamp = Number(task.updatedAt);
+  if (Number.isFinite(updatedTimestamp)) return updatedTimestamp;
+
+  const createdTimestamp = Number(task.createdAt);
+  return Number.isFinite(createdTimestamp) ? createdTimestamp : 0;
+}
+
+function getLatestTaskSessionTimestamp(taskId) {
+  return sessions
+    .filter(session => session.taskId === taskId)
+    .reduce((latest, session) => Math.max(latest, Number(session.end || session.start || 0)), 0);
+}
+
+function getTaskRecencyTimestamp(task) {
+  const subtasks = getSubtasks(task.id);
+
+  let latest = Math.max(
+    getTaskUpdatedTimestamp(task),
+    getLatestTaskSessionTimestamp(task.id)
+  );
+
+  subtasks.forEach(subtask => {
+    latest = Math.max(
+      latest,
+      getTaskUpdatedTimestamp(subtask),
+      getLatestTaskSessionTimestamp(subtask.id)
+    );
+  });
+
+  return latest;
+}
+
+function appendCompletedTaskGroup(container, rootTask, completedProjectTasks) {
+  const completedChildren = completedProjectTasks
+    .filter(task => task.parentTaskId === rootTask.id)
+    .sort((a, b) => getCompletedTimestamp(b) - getCompletedTimestamp(a));
+
+  if (rootTask.completed) {
+    container.appendChild(createTaskElement(rootTask));
+  }
+
+  if (completedChildren.length > 0) {
+    const subtaskContainer = document.createElement("div");
+    subtaskContainer.className = "subtask-list completed-subtask-list";
+
+    completedChildren.forEach(subtask => {
+      subtaskContainer.appendChild(createTaskElement(subtask, true));
+    });
+
+    container.appendChild(subtaskContainer);
+  }
 }
 
 function getProjectEstimatedHours(projectId) {
@@ -1175,6 +1264,21 @@ async function deleteTask(id) {
   }
 }
 
+function expandAllCompletedProjects() {
+  tasks
+    .filter(task => isTaskVisible(task) && task.completed)
+    .forEach(task => {
+      expandedCompletedProjects.add(task.projectId);
+    });
+
+  renderTasks();
+}
+
+function collapseAllCompletedProjects() {
+  expandedCompletedProjects.clear();
+  renderTasks();
+}
+
 function expandAllActiveProjects() {
   tasks
     .filter(task => isTaskVisible(task) && !task.completed)
@@ -1311,17 +1415,60 @@ function createTaskElement(task, isSubtask = false) {
   return taskElement;
 }
 
-function appendTaskTree(container, parentTask, visibleTasks) {
+function appendTaskTree(container, parentTask, visibleTasks, sortMode = "active") {
   const parentWrapper = document.createElement("div");
   parentWrapper.className = "task-tree";
 
-  parentWrapper.appendChild(createTaskElement(parentTask));
-
   const subtasks = visibleTasks
     .filter(task => task.parentTaskId === parentTask.id)
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => {
+      if (sortMode === "completed") {
+        return getCompletedTimestamp(b) - getCompletedTimestamp(a);
+      }
 
-  if (subtasks.length > 0) {
+      return getTaskRecencyTimestamp(b) - getTaskRecencyTimestamp(a);
+    });
+
+  const parentTaskElement = createTaskElement(parentTask);
+
+  if (subtasks.length === 0) {
+    parentWrapper.appendChild(parentTaskElement);
+    container.appendChild(parentWrapper);
+    return;
+  }
+
+  const containsRunningTask = subtasks.some(task => task.id === state.runningTaskId);
+
+  if (containsRunningTask) {
+    expandedParentTasks.add(parentTask.id);
+  }
+
+  const completedSubtasks = subtasks.filter(task => task.completed).length;
+  const isExpanded = expandedParentTasks.has(parentTask.id);
+
+  const hierarchyRow = document.createElement("div");
+  hierarchyRow.className = "parent-task-hierarchy-row";
+
+  hierarchyRow.innerHTML = `
+      <button
+      type="button"
+      class="parent-task-toggle"
+      data-action="toggle-subtasks"
+      data-parent-task-id="${parentTask.id}"
+    >
+      ${isExpanded ? "Hide Subtasks ▲" : "Show Subtasks ▼"}
+    </button>
+
+    <div class="parent-task-hierarchy-meta">
+      ${subtasks.length} subtask${subtasks.length === 1 ? "" : "s"} ·
+      ${completedSubtasks} completed
+    </div>
+  `;
+
+  parentTaskElement.appendChild(hierarchyRow);
+  parentWrapper.appendChild(parentTaskElement);
+
+  if (isExpanded) {
     const subtaskContainer = document.createElement("div");
     subtaskContainer.className = "subtask-list";
 
@@ -1443,7 +1590,9 @@ function renderTasks(clearNoteTaskId = null) {
 
   sortedActiveProjectGroups.forEach(([projectId, projectTasks]) => {
     const project = projects.find(project => project.id === projectId);
-    const activeParents = projectTasks.filter(task => !task.parentTaskId);
+    const activeParents = projectTasks
+      .filter(task => !task.parentTaskId)
+      .sort((a, b) => getTaskRecencyTimestamp(b) - getTaskRecencyTimestamp(a));
     const totalSeconds = projectTasks.reduce((total, task) => total + getTaskSessionSeconds(task.id), 0);
     const estimatedHours = getProjectEstimatedHours(projectId);
 
@@ -1478,11 +1627,9 @@ function renderTasks(clearNoteTaskId = null) {
     const projectTaskContainer = document.createElement("div");
     projectTaskContainer.className = "active-project-task-list";
 
-    activeParents
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .forEach(parentTask => {
-        appendTaskTree(projectTaskContainer, parentTask, projectTasks);
-      });
+    activeParents.forEach(parentTask => {
+      appendTaskTree(projectTaskContainer, parentTask, projectTasks);
+    });
 
     projectGroup.addEventListener("toggle", () => {
       if (projectGroup.open) {
@@ -1499,74 +1646,112 @@ function renderTasks(clearNoteTaskId = null) {
 
   const completedTasks = visibleTasks.filter(task => task.completed);
 
-  if (completedTasks.length > 0) {
-    const completedByProject = completedTasks.reduce((groups, task) => {
-      const projectId = task.projectId || "unknown";
+  if (completedTasks.length === 0) {
+    completedTasksContainer.innerHTML = `
+      <div class="empty-state">
+        <h3>No completed tasks yet</h3>
+        <p>Tasks you complete will appear here.</p>
+      </div>
+    `;
+    return;
+  }
 
-      if (!groups[projectId]) groups[projectId] = [];
-      groups[projectId].push(task);
+  const completedByProject = completedTasks.reduce((groups, task) => {
+    const projectId = task.projectId || "unknown";
 
-      return groups;
-    }, {});
+    if (!groups[projectId]) groups[projectId] = [];
+    groups[projectId].push(task);
 
-    const sortedProjectGroups = Object.entries(completedByProject).sort(([, tasksA], [, tasksB]) => {
+    return groups;
+  }, {});
+
+  const sortedCompletedProjectGroups = Object.entries(completedByProject)
+    .sort(([, tasksA], [, tasksB]) => {
       const newestA = Math.max(...tasksA.map(task => getCompletedTimestamp(task)));
       const newestB = Math.max(...tasksB.map(task => getCompletedTimestamp(task)));
 
       return newestB - newestA;
     });
 
-    sortedProjectGroups.forEach(([projectId, projectTasks]) => {
-      const project = projects.find(project => project.id === projectId);
-      const group = document.createElement("div");
+  sortedCompletedProjectGroups.forEach(([projectId, projectTasks]) => {
+    const project = projects.find(project => project.id === projectId);
 
-      group.className = "completed-project-group";
-      group.innerHTML = `
-        <h3 class="completed-project-heading">
-          ${project
-            ? `<span style="background:${project.color}"></span>${escapeHTML(project.name)}`
-            : "Unknown project"}
-        </h3>
-      `;
+    const projectGroup = document.createElement("details");
+    projectGroup.className = "completed-project-group";
+    projectGroup.open = expandedCompletedProjects.has(projectId);
 
-      const completedParents = projectTasks
-        .filter(task => !task.parentTaskId)
-        .sort((a, b) => getCompletedTimestamp(b) - getCompletedTimestamp(a));
+    const newestCompletion = Math.max(...projectTasks.map(task => getCompletedTimestamp(task)));
 
-      completedParents.forEach(parentTask => {
-        appendTaskTree(group, parentTask, projectTasks);
-      });
+    const summary = document.createElement("summary");
+    summary.className = "completed-project-summary";
+    summary.innerHTML = `
+      <div class="completed-project-heading">
+        <span class="project-color" style="background:${project?.color || "#777777"}"></span>
 
-      const completedSubtasksWithActiveParents = projectTasks
-        .filter(task => {
-          if (!task.parentTaskId) return false;
+        <div>
+          <strong>${escapeHTML(project?.name || "Unknown project")}</strong>
+          <div class="completed-project-meta">
+            ${projectTasks.length} completed task${projectTasks.length === 1 ? "" : "s"} ·
+            latest ${new Date(newestCompletion).toLocaleDateString()}
+          </div>
+        </div>
+      </div>
+    `;
 
-          const parent = tasks.find(parentTask => parentTask.id === task.parentTaskId);
+    const projectTaskContainer = document.createElement("div");
+    projectTaskContainer.className = "completed-project-task-list";
 
-          return !parent || !parent.completed;
-        })
-        .sort((a, b) => getCompletedTimestamp(b) - getCompletedTimestamp(a));
+    /*
+    * Determine the top-level group each completed task belongs to.
+    * This uses the full task list, not just completed tasks.
+    */
+    const roots = new Map();
 
-      completedSubtasksWithActiveParents.forEach(subtask => {
-        group.appendChild(createTaskElement(subtask, true));
-      });
+    projectTasks.forEach(task => {
+      if (!task.parentTaskId) {
+        roots.set(task.id, task);
+        return;
+      }
 
-      completedTasksContainer.appendChild(group);
+      const parent = tasks.find(parent => parent.id === task.parentTaskId);
+
+      if (parent) {
+        roots.set(parent.id, parent);
+      } else {
+        roots.set(task.id, task);
+      }
     });
-  }
+
+    const sortedRoots = [...roots.values()].sort((a, b) => {
+      return getCompletedGroupTimestamp(b, projectTasks) -
+            getCompletedGroupTimestamp(a, projectTasks);
+    });
+
+    sortedRoots.forEach(rootTask => {
+      appendCompletedTaskGroup(projectTaskContainer, rootTask, projectTasks);
+    });
+
+    projectGroup.addEventListener("toggle", () => {
+      if (projectGroup.open) {
+        expandedCompletedProjects.add(projectId);
+      } else {
+        expandedCompletedProjects.delete(projectId);
+      }
+    });
+
+    projectGroup.appendChild(summary);
+    projectGroup.appendChild(projectTaskContainer);
+    completedTasksContainer.appendChild(projectGroup);
+  });
 
   restoreTaskNoteUIState(savedNoteState);
 }
 
-function toggleCompleted() {
-  const isHidden = completedTasksContainer.style.display === "none" || completedTasksContainer.style.display === "";
 
-  completedTasksContainer.style.display = isHidden ? "block" : "none";
-  completedTasksHeading.textContent = isHidden ? "Completed Tasks ▲" : "Completed Tasks ▼";
-}
 
 async function handleTaskAction(event) {
   const button = event.target.closest("button[data-action]");
+  const parentTaskId = button.dataset.parentTaskId;
   if (!button) return;
 
   const action = button.dataset.action;
@@ -1597,7 +1782,18 @@ async function handleTaskAction(event) {
     case "unarchive":
       await unarchiveTask(taskId);
       break;
-    
+    case "toggle-subtasks": {
+        const parentTaskId = button.dataset.parentTaskId;
+      
+        if (expandedParentTasks.has(parentTaskId)) {
+          expandedParentTasks.delete(parentTaskId);
+        } else {
+          expandedParentTasks.add(parentTaskId);
+        }
+      
+        renderTasks();
+        break;
+      }
   }
 }
 function taskElementButton(taskId, action) {
@@ -2908,7 +3104,6 @@ tagNameInput.addEventListener("keydown", event => {
 addTaskButton.addEventListener("click", addTask);
 activeTasksContainer.addEventListener("click", handleTaskAction);
 completedTasksContainer.addEventListener("click", handleTaskAction);
-completedTasksHeading.addEventListener("click", toggleCompleted);
 taskProjectInput.addEventListener("change", () => renderTaskParentOptions());
 nameInput.addEventListener("keydown", event => {
   if (event.key === "Enter") addTask();
@@ -2925,6 +3120,8 @@ manualSessionTaskInput.addEventListener("change", () => {
 
 expandAllActiveProjectsButton.addEventListener("click", expandAllActiveProjects);
 collapseAllActiveProjectsButton.addEventListener("click", collapseAllActiveProjects);
+expandAllCompletedProjectsButton.addEventListener("click", expandAllCompletedProjects);
+collapseAllCompletedProjectsButton.addEventListener("click", collapseAllCompletedProjects);
 
 // Sessions
 addManualSessionButton.addEventListener("click", openManualSessionForm);

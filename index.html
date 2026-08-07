@@ -152,8 +152,19 @@
       </section>
 
       <section class="card completed-section">
-        <h2 id="completedTasksHeading" class="collapsible-heading">Completed Tasks ▼</h2>
-        <div id="completedTasks" class="task-list" style="display:none;"></div>
+        <div class="section-heading">
+          <div>
+            <h2>Completed Tasks</h2>
+            <p>Review completed work grouped by project.</p>
+          </div>
+      
+          <div class="section-actions">
+            <button id="expandAllCompletedProjectsButton" class="secondary-button" type="button">Expand All</button>
+            <button id="collapseAllCompletedProjectsButton" class="secondary-button" type="button">Collapse All</button>
+          </div>
+        </div>
+      
+        <div id="completedTasks" class="task-list"></div>
       </section>
 
       <section class="card">
