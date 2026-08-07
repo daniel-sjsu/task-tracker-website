@@ -39,7 +39,8 @@ let pieChart = null;
 let weeklyChart = null;
 let reportProjectChart = null;
 let reportEstimateChart = null;
-const collapsedActiveProjects = new Set();
+const expandedActiveProjects = new Set();
+const expandedParentTasks = new Set();
 
 // ============================================================================
 // DOM REFERENCES
@@ -76,6 +77,8 @@ const manualSessionEndInput = document.getElementById("manualSessionEndInput");
 const manualSessionNoteInput = document.getElementById("manualSessionNoteInput");
 const saveManualSessionButton = document.getElementById("saveManualSessionButton");
 const cancelManualSessionButton = document.getElementById("cancelManualSessionButton");
+const expandAllActiveProjectsButton = document.getElementById("expandAllActiveProjectsButton");
+const collapseAllActiveProjectsButton = document.getElementById("collapseAllActiveProjectsButton");
 
 const newTagButton = document.getElementById("newTagButton");
 const tagFormCard = document.getElementById("tagFormCard");
@@ -1172,6 +1175,26 @@ async function deleteTask(id) {
   }
 }
 
+function expandAllActiveProjects() {
+  tasks
+    .filter(task => isTaskVisible(task) && !task.completed)
+    .forEach(task => expandedActiveProjects.add(task.projectId));
+
+  renderTasks();
+}
+
+function collapseAllActiveProjects() {
+  expandedActiveProjects.clear();
+
+  const runningTask = tasks.find(task => task.id === state.runningTaskId);
+
+  if (runningTask) {
+    expandedActiveProjects.add(runningTask.projectId);
+  }
+
+  renderTasks();
+}
+
 function createTaskElement(task, isSubtask = false) {
   const project = projects.find(project => project.id === task.projectId);
   const parentTask = task.parentTaskId ? tasks.find(parent => parent.id === task.parentTaskId) : null;
@@ -1426,7 +1449,13 @@ function renderTasks(clearNoteTaskId = null) {
 
     const projectGroup = document.createElement("details");
     projectGroup.className = "active-project-group";
-    projectGroup.open = !collapsedActiveProjects.has(projectId);
+    const projectContainsRunningTask = projectTasks.some(task => task.id === state.runningTaskId);
+
+    if (projectContainsRunningTask) {
+      expandedActiveProjects.add(projectId);
+    }
+
+    projectGroup.open = expandedActiveProjects.has(projectId);
 
     const summary = document.createElement("summary");
     summary.className = "active-project-summary";
@@ -1457,9 +1486,9 @@ function renderTasks(clearNoteTaskId = null) {
 
     projectGroup.addEventListener("toggle", () => {
       if (projectGroup.open) {
-        collapsedActiveProjects.delete(projectId);
+        expandedActiveProjects.add(projectId);
       } else {
-        collapsedActiveProjects.add(projectId);
+        expandedActiveProjects.delete(projectId);
       }
     });
 
@@ -2893,6 +2922,9 @@ completedTasksContainer.addEventListener("click", handleTaskNoteAction);
 manualSessionTaskInput.addEventListener("change", () => {
   renderManualSessionTagOptions();
 });
+
+expandAllActiveProjectsButton.addEventListener("click", expandAllActiveProjects);
+collapseAllActiveProjectsButton.addEventListener("click", collapseAllActiveProjects);
 
 // Sessions
 addManualSessionButton.addEventListener("click", openManualSessionForm);
